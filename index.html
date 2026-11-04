@@ -1,0 +1,1184 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sillon</title>
+<meta name="description" content="Trouve des morceaux à la sonorité proche grâce à l'analyse audio.">
+<meta name="theme-color" content="#3140c9">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sillon">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: centred search hero, reference chips, measured sound profile, weights, then the ranked list */
+:root{
+  --bg:#eef0f6; --surface:#ffffff; --ink:#191a2e; --muted:#5d6079; --line:#d6d9e6;
+  --accent:#3140c9; --accent-soft:#e3e6fb;
+  --ok:#1d7a4f; --ok-soft:#dcf1e6; --warn:#9a5b00; --warn-soft:#fbecd2; --bad:#a3313a; --bad-soft:#f8dfe1;
+  --display:"Syne","Avenir Next","Segoe UI",sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12131f; --surface:#1b1d2d; --ink:#e9eaf5; --muted:#9a9db8; --line:#2e3147;
+  --accent:#8f9bff; --accent-soft:#262b52;
+  --ok:#6fd3a0; --ok-soft:#173327; --warn:#f0b65c; --warn-soft:#352812; --bad:#f08890; --bad-soft:#3a1c20;
+  color-scheme:dark}}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+img{max-width:100%}
+[hidden]{display:none!important}
+.wrap{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+header{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px}
+.brand{display:flex;align-items:center;gap:12px}
+.brand canvas{width:46px;height:46px;flex:none}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(32px,7vw,48px);letter-spacing:-.02em;margin:0;line-height:1}
+.tag{color:var(--muted);margin:0;max-width:54ch;text-wrap:balance}
+h2{font-family:var(--display);font-weight:600;font-size:20px;margin:0;text-wrap:balance}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.search{display:grid;gap:12px}
+.modes{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px;justify-self:center}
+.modes button{background:transparent;border:0;color:var(--muted);padding:7px 16px;font-size:14px}
+.modes button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.bigbox{display:flex;gap:8px;background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:6px 6px 6px 16px;align-items:center}
+.bigbox:focus-within{border-color:var(--accent)}
+.bigbox input{border:0;background:transparent;padding:10px 0;flex:1;min-width:0;color:var(--ink);font:inherit;font-size:17px}
+.bigbox input:focus-visible{outline:none}
+.subrow{display:flex;justify-content:center;gap:8px 18px;flex-wrap:wrap;align-items:center}
+.filebtn{display:inline-flex;align-items:center;gap:6px;color:var(--accent);font-weight:500;font-size:14px;cursor:pointer;border:1px dashed var(--accent);border-radius:999px;padding:6px 14px}
+.filebtn input{position:absolute;left:-9999px}
+details.more summary{cursor:pointer;color:var(--muted);text-align:center;font-size:14px}
+.more-body{display:grid;gap:14px;margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.opts{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.inline{flex-direction:row;align-items:center;gap:8px}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 12px;width:100%}
+input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible,summary:focus-visible,.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.check{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:14px}
+.check input{width:auto}
+button{font:inherit;font-weight:600;cursor:pointer;border-radius:999px;padding:10px 20px;border:1px solid var(--accent);background:var(--accent);color:var(--surface)}
+button.ghost{background:transparent;color:var(--accent)}
+button.link{background:none;border:0;padding:0;color:var(--muted);font-weight:500;font-size:13px;text-decoration:underline}
+button:disabled{opacity:.5;cursor:default}
+.hint{font-size:13px;color:var(--muted);text-align:center;margin:0}
+.small{font-size:13px;color:var(--muted);margin:0}
+.small a{color:var(--accent)}
+.history{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:center}
+.history .h{background:var(--surface);color:var(--ink);border:1px solid var(--line);font-weight:500;font-size:13px;padding:5px 12px}
+.status{font-size:14px;color:var(--muted);display:flex;align-items:center;justify-content:center;gap:10px;min-height:22px;text-align:center}
+.status .bar{display:flex;gap:3px;align-items:flex-end;height:16px}
+.status .bar i{width:3px;background:var(--accent);border-radius:2px;animation:eq 1s ease-in-out infinite}
+.status .bar i:nth-child(2){animation-delay:-.3s}.status .bar i:nth-child(3){animation-delay:-.6s}.status .bar i:nth-child(4){animation-delay:-.15s}
+@keyframes eq{0%,100%{height:4px}50%{height:16px}}
+@media (prefers-reduced-motion:reduce){.status .bar i{animation:none;height:10px}}
+.progress{height:4px;background:var(--line);border-radius:2px;overflow:hidden;max-width:360px;margin:0 auto;width:100%}
+.progress i{display:block;height:100%;background:var(--accent);transition:width .2s}
+.error{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:10px 14px;font-size:14px}
+.keyok{color:var(--ok)}
+
+.picker{display:grid;gap:8px}
+.cand{display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px 8px 8px;text-align:left;color:var(--ink);font-weight:400;cursor:pointer;width:100%}
+.cand:hover{border-color:var(--accent)}
+.cand img{width:56px;height:56px;border-radius:8px;object-fit:cover;background:var(--line)}
+.cand b{display:block;font-weight:600}
+.cand span{color:var(--muted);font-size:13px}
+
+.refs{display:grid;gap:10px}
+.refchips{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.refchip{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 6px 4px 4px;font-size:14px;max-width:100%}
+.refchip img,.refchip .fileic{width:30px;height:30px;border-radius:50%;object-fit:cover;background:var(--accent-soft);flex:none;display:grid;place-items:center;color:var(--accent);font-size:13px}
+.refchip span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.refchip button{background:none;border:0;color:var(--muted);padding:2px 8px;font-size:16px;line-height:1}
+.addref{display:flex;gap:8px;flex-wrap:wrap}
+.addref input{flex:1;min-width:180px}
+.addref button{padding:8px 16px;font-size:14px}
+.ref-card{display:grid;grid-template-columns:120px 1fr;gap:18px;align-items:center}
+.ref-card img{width:120px;height:120px;border-radius:12px;object-fit:cover;background:var(--line)}
+@media (max-width:520px){.ref-card{grid-template-columns:84px 1fr}.ref-card img{width:84px;height:84px}}
+.ref-title{font-family:var(--display);font-weight:800;font-size:clamp(22px,4.5vw,30px);letter-spacing:-.01em;margin:0;line-height:1.15;overflow-wrap:anywhere}
+.ref-meta{color:var(--muted);font-family:var(--mono);font-size:13px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12.5px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+.chip-ok{background:var(--ok-soft);border-color:var(--ok-soft);color:var(--ok)}
+.profile{display:grid;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.facts{display:flex;gap:10px 28px;flex-wrap:wrap}
+.facts div{display:grid;gap:2px;min-width:0}
+.facts b{font-family:var(--mono);font-weight:500;font-size:15px}
+.feat{display:grid;grid-template-columns:120px 1fr 90px;gap:12px;align-items:center;font-size:14px}
+.meter{height:4px;background:var(--line);border-radius:2px;overflow:hidden;max-width:220px}
+.meter i{display:block;height:100%;background:var(--accent)}
+.feat .meter{max-width:none;height:6px}
+.feat-v{color:var(--muted);font-size:13px;text-align:right}
+.engine{font-size:12px;color:var(--muted)}
+.weights{display:grid;gap:10px}
+.weights-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline}
+.wrow{display:grid;grid-template-columns:170px 1fr 80px;gap:12px;align-items:center;font-size:14px}
+.wrow input{padding:0;accent-color:var(--accent);background:transparent;border:0}
+.wval{color:var(--muted);font-size:13px;text-align:right}
+@media (max-width:520px){.feat{grid-template-columns:96px 1fr 76px}.wrow{grid-template-columns:1fr 70px}.wrow span:first-child{grid-column:1/-1}}
+
+.list-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.legend{font-size:13px;color:var(--muted)}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.filters button{padding:5px 12px;font-size:13px;background:transparent;color:var(--muted);border-color:var(--line);font-weight:500}
+.filters button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+ol.tracks{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.track{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;grid-template-columns:64px 1fr;gap:4px 14px}
+.track.liked{border-color:var(--ok)}
+.track .art{position:relative;width:64px;height:64px;grid-row:1/span 3}
+.track .art img{width:64px;height:64px;border-radius:8px;object-fit:cover;background:var(--line);display:block}
+.play{position:absolute;inset:0;margin:auto;width:34px;height:34px;padding:0;border-radius:50%;display:grid;place-items:center;background:rgba(10,10,20,.62);border:0;color:#fff;font-size:13px}
+.play[aria-pressed="true"]{background:var(--accent)}
+.t-top{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;justify-content:space-between}
+.t-name{font-weight:600;font-size:16px;min-width:0;overflow-wrap:anywhere}
+.t-name span{color:var(--muted);font-weight:400}
+.t-album{font-family:var(--mono);font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.pills{display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-size:11.5px;font-weight:600;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.p-conf{background:var(--accent-soft);color:var(--accent)}
+.p-kind{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.listen{display:flex;gap:6px 14px;font-size:13px;margin-top:4px;flex-wrap:wrap;align-items:center}
+.listen a{color:var(--accent);text-decoration:none;font-weight:500}
+.listen a:hover{text-decoration:underline}
+.vote{display:inline-flex;gap:4px}
+.vote button,.fav{background:none;border:1px solid var(--line);color:var(--muted);padding:3px 10px;font-size:12.5px;font-weight:500}
+.vote button[aria-pressed="true"].up{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-soft)}
+.fav[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-soft)}
+.copybar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.copybar button{padding:6px 14px;font-size:13px}
+.copybar textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+details.favs{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 16px}
+details.favs summary{cursor:pointer;font-weight:600}
+.favs-body{display:grid;gap:10px;margin-top:10px}
+.favs-body ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.favs-body li{display:flex;gap:10px;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:6px;font-size:14px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 16px;font-size:14px;max-width:calc(100% - 32px);box-shadow:0 6px 24px rgba(0,0,0,.2);z-index:20}
+.install{display:flex;justify-content:center}
+.faq{display:grid;gap:8px}
+.faq details{border-bottom:1px solid var(--line);padding:10px 0}
+.faq summary{cursor:pointer;font-weight:600}
+.faq p{margin:8px 0 0;color:var(--muted);max-width:65ch}
+footer{font-size:13px;color:var(--muted);max-width:65ch}
+footer a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><canvas id="logo" width="92" height="92" aria-hidden="true"></canvas><h1>Sillon</h1></div>
+    <p class="tag">Sillon écoute ton morceau, mesure son tempo, sa tonalité, son timbre et son énergie, puis cherche les morceaux qui sonnent pareil.</p>
+  </header>
+
+  <form id="f" class="search" autocomplete="off">
+    <div class="modes" role="group" aria-label="Type de recherche">
+      <button type="button" id="m-tracks" aria-pressed="true">Morceaux similaires</button>
+      <button type="button" id="m-artists" aria-pressed="false">Artistes similaires</button>
+    </div>
+    <div class="bigbox">
+      <label for="q" class="label" style="position:absolute;left:-9999px">Recherche</label>
+      <input id="q" required placeholder="Artiste et titre, ou lien Deezer">
+      <button type="submit" id="go">Trouver</button>
+    </div>
+    <div class="subrow">
+      <p class="hint" id="hint">Exemples : « Daft Punk Digital Love », « Billie Eilish Ocean Eyes »</p>
+      <label class="filebtn" id="filelabel">♫ Analyser un fichier audio<input type="file" id="file" accept="audio/*,.mp3,.m4a,.wav,.flac,.ogg"></label>
+    </div>
+    <div class="history" id="history" hidden></div>
+    <details class="more" id="more">
+      <summary>Réglages</summary>
+      <div class="more-body">
+        <div class="opts">
+          <div class="field inline"><label class="label" for="count">Résultats</label>
+            <select id="count" style="width:auto"><option>10</option><option selected>20</option><option>30</option></select></div>
+          <div class="field inline"><label class="label" for="depth">Morceaux analysés</label>
+            <select id="depth" style="width:auto"><option value="40">40 (rapide)</option><option value="70" selected>70</option><option value="120">120 (plus précis, plus long)</option></select></div>
+        </div>
+        <div class="opts">
+          <label class="check"><input type="checkbox" id="exclude" checked> Exclure l'artiste d'origine</label>
+          <label class="check"><input type="checkbox" id="onePer" checked> 1 morceau max par artiste</label>
+          <label class="check"><input type="checkbox" id="pro" checked> Analyse avancée (Essentia, plus précise)</label>
+        </div>
+        <div class="field">
+          <label class="label" for="lfkey">Clé Last.fm (gratuite, recommandée)</label>
+          <input id="lfkey" placeholder="colle ta clé API ici">
+          <p class="small" id="keystate"></p>
+          <p class="small">Avec une clé, Sillon ajoute à ses candidats les morceaux proches selon Last.fm et ceux du même genre, ce qui élargit beaucoup la recherche. Clé gratuite en 2 minutes : <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener">last.fm/api/account/create</a>.</p>
+        </div>
+        <div class="opts">
+          <button type="button" class="link" id="resetLearn">Réinitialiser ce que Sillon a appris de mes avis</button>
+          <button type="button" class="link" id="clearCache">Vider la mémoire des analyses</button>
+        </div>
+      </div>
+    </details>
+    <div class="status" id="status" aria-live="polite"></div>
+    <div class="progress" id="progress" hidden><i></i></div>
+  </form>
+
+  <details class="favs" id="favs" hidden><summary></summary><div class="favs-body" id="favs-body"></div></details>
+
+  <section id="out" class="wrap" style="gap:24px"></section>
+
+  <div class="install" id="installbox" hidden><button type="button" class="ghost" id="install">Installer Sillon sur cet appareil</button></div>
+
+  <section class="faq">
+    <h2>Questions fréquentes</h2>
+    <details><summary>Comment la sonorité est-elle comparée ?</summary><p>Sillon réunit des dizaines de candidats (radio Deezer de l'artiste, artistes proches et, avec une clé Last.fm, morceaux proches et morceaux du même genre). Il télécharge l'extrait de 30 secondes de chacun et le mesure : timbre (la « couleur » du son), brillance, basses, énergie, dynamique, tempo, régularité du rythme, côté dansant et tonalité. Le tempo, la tonalité et le côté dansant sont mesurés avec Essentia, une bibliothèque d'analyse musicale développée par l'Université Pompeu Fabra de Barcelone.</p></details>
+    <details><summary>À quoi servent 👍 et 👎 ?</summary><p>Ils apprennent à Sillon ce qui compte pour toi. Si tu aimes surtout des morceaux qui ont le même rythme, le poids du rythme augmente. Un 👎 retire aussi le morceau des résultats futurs. Tes réglages appris sont gardés d'une recherche à l'autre.</p></details>
+    <details><summary>Comment combiner plusieurs morceaux ?</summary><p>Après une première recherche, utilise « Ajouter une référence » (jusqu'à 3 morceaux ou fichiers). Sillon cherche alors les morceaux qui ressemblent à l'ensemble, pas seulement à l'un d'eux.</p></details>
+    <details><summary>Puis-je analyser mon propre fichier ?</summary><p>Oui, avec « Analyser un fichier audio ». Le fichier reste sur ton appareil : il est analysé dans le navigateur et n'est envoyé nulle part. Si le nom du fichier contient l'artiste (par exemple « Artiste - Titre.mp3 »), Sillon s'en sert pour trouver des candidats ; sinon il te demande un artiste ou un style proche.</p></details>
+    <details><summary>Pourquoi certains morceaux ne sont pas analysés ?</summary><p>Il faut un extrait audio. Si Deezer n'en a pas, Sillon essaie Apple Music (iTunes). Sans extrait, le morceau est ignoré. Tous les titres viennent des catalogues : rien n'est inventé.</p></details>
+    <details><summary>Est-ce que ça utilise une IA ou des jetons ?</summary><p>Non. Les recherches passent par les services gratuits de Deezer, Apple Music et Last.fm, et toute l'analyse se fait dans ton navigateur.</p></details>
+    <details><summary>Et l'onglet « Artistes similaires » ?</summary><p>Il fonctionne par public commun (Last.fm ou Deezer), sans analyse sonore. Pour une ressemblance de son, utilise « Morceaux similaires ».</p></details>
+  </section>
+
+  <footer>Données : <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a>, <a href="https://www.apple.com/fr/apple-music/" target="_blank" rel="noopener">Apple Music</a> et <a href="https://www.last.fm" target="_blank" rel="noopener">Last.fm</a>. Analyse audio : <a href="https://mtg.github.io/essentia.js/" target="_blank" rel="noopener">Essentia.js</a> (MTG, Université Pompeu Fabra). Tes favoris, tes réglages et tes fichiers restent sur ton appareil.</footer>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<!-- ============ Analysis core: shared by the worker and the main-thread fallback ============ -->
+<script type="text/plain" id="core-src">
+var SillonCore = (function(){
+  var N = 1024, H = 512;
+  var rev = new Uint32Array(N), cosT = new Float64Array(N / 2), sinT = new Float64Array(N / 2);
+  (function(){ var bits = Math.log2(N); for (var i = 0; i < N; i++){ var r = 0; for (var b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b); rev[i] = r; }
+    for (var j = 0; j < N / 2; j++){ cosT[j] = Math.cos(-2 * Math.PI * j / N); sinT[j] = Math.sin(-2 * Math.PI * j / N); } })();
+  function fft(re, im){
+    for (var i = 0; i < N; i++){ var j = rev[i]; if (j > i){ var t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    for (var size = 2; size <= N; size <<= 1){
+      var half = size >> 1, step = N / size;
+      for (var s = 0; s < N; s += size){
+        for (var q = 0, k = 0; q < half; q++, k += step){
+          var a = s + q, b = a + half;
+          var tr = re[b] * cosT[k] - im[b] * sinT[k], ti = re[b] * sinT[k] + im[b] * cosT[k];
+          re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        }
+      }
+    }
+  }
+  var win = new Float64Array(N); for (var w0 = 0; w0 < N; w0++) win[w0] = 0.5 - 0.5 * Math.cos(2 * Math.PI * w0 / (N - 1));
+  var tcache = {};
+  function tables(sr){
+    if (tcache[sr]) return tcache[sr];
+    var nb = N / 2 + 1, hzA = new Float64Array(nb); for (var k = 0; k < nb; k++) hzA[k] = k * sr / N;
+    var mel = function(f){ return 2595 * Math.log10(1 + f / 700); }, imel = function(m){ return 700 * (Math.pow(10, m / 2595) - 1); };
+    var M = 40, lo = mel(40), hi = mel(Math.min(16000, sr / 2)), pts = [];
+    for (var i = 0; i < M + 2; i++) pts.push(imel(lo + (hi - lo) * i / (M + 1)));
+    var filt = [];
+    for (var m = 0; m < M; m++){
+      var l = pts[m], c = pts[m + 1], r = pts[m + 2], w = [], start = -1;
+      for (var kk = 0; kk < nb; kk++){ var f = hzA[kk]; if (f > l && f < r){ if (start < 0) start = kk; w.push(f <= c ? (f - l) / (c - l) : (r - f) / (r - c)); } }
+      filt.push({ start:Math.max(0, start), w:Float64Array.from(w) });
+    }
+    var dct = []; for (var d = 0; d < 13; d++){ var row = new Float64Array(M); for (var mm = 0; mm < M; mm++) row[mm] = Math.cos(Math.PI * d * (mm + 0.5) / M); dct.push(row); }
+    var pc = new Int8Array(nb).fill(-1);
+    for (var k2 = 1; k2 < nb; k2++){ var f2 = hzA[k2]; if (f2 >= 55 && f2 <= 5000) pc[k2] = ((Math.round(12 * Math.log2(f2 / 440)) % 12) + 12 + 9) % 12; }
+    return (tcache[sr] = { nb:nb, filt:filt, dct:dct, pc:pc, bassK:Math.ceil(150 * N / sr), hzA:hzA });
+  }
+  var MAJ = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88], MIN = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+  function pearson(a, b){ var n = a.length, ma = 0, mb = 0, i; for (i = 0; i < n; i++){ ma += a[i]; mb += b[i]; } ma /= n; mb /= n;
+    var s = 0, sa = 0, sb = 0; for (i = 0; i < n; i++){ var x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / (Math.sqrt(sa * sb) || 1); }
+
+  // x: mono Float32Array, sr: sample rate
+  function analyze(x, sr){
+    var T = tables(sr), len = Math.min(x.length, sr * 30);
+    var frames = Math.floor((len - N) / H);
+    if (frames < 50) throw new Error("short");
+    var re = new Float64Array(N), im = new Float64Array(N), mag = new Float64Array(T.nb), prevLog = new Float64Array(T.nb);
+    var mfccSum = new Float64Array(13), mfccSq = new Float64Array(13), chroma = new Float64Array(12), melE = new Float64Array(T.filt.length);
+    var flux = new Float64Array(frames), rmsDb = [], cent = 0, roll = 0, flat = 0, bass = 0, used = 0;
+    for (var f = 0; f < frames; f++){
+      var s0 = f * H, e = 0, i;
+      for (i = 0; i < N; i++){ var v = x[s0 + i]; e += v * v; re[i] = v * win[i]; im[i] = 0; }
+      var rms = Math.sqrt(e / N);
+      fft(re, im);
+      var tot = 0, wsum = 0, msum = 0, lsum = 0, bsum = 0, fl = 0;
+      for (var k = 0; k < T.nb; k++){
+        var p = re[k] * re[k] + im[k] * im[k], m = Math.sqrt(p); mag[k] = m;
+        tot += p; wsum += T.hzA[k] * m; msum += m; lsum += Math.log(m + 1e-9); if (k < T.bassK) bsum += p;
+        var lg = Math.log(1 + 100 * m), dd = lg - prevLog[k]; if (dd > 0) fl += dd; prevLog[k] = lg;
+        if (T.pc[k] >= 0) chroma[T.pc[k]] += m;
+      }
+      flux[f] = fl;
+      if (rms < 1e-3 || tot <= 0) continue;
+      used++; rmsDb.push(20 * Math.log10(rms));
+      cent += Math.log2(wsum / msum + 1);
+      var acc = 0, k85 = 0; for (; k85 < T.nb - 1; k85++){ acc += mag[k85] * mag[k85]; if (acc >= 0.85 * tot) break; }
+      roll += Math.log2(T.hzA[k85] + 1);
+      flat += Math.exp(lsum / T.nb) / (msum / T.nb);
+      bass += bsum / tot;
+      for (var mi = 0; mi < T.filt.length; mi++){ var F = T.filt[mi], ww = F.w, o = F.start, s2 = 0; for (var q = 0; q < ww.length; q++){ var mm = mag[o + q]; s2 += ww[q] * mm * mm; } melE[mi] = Math.log10(s2 + 1e-10); }
+      for (var c = 0; c < 13; c++){ var val = 0, row = T.dct[c]; for (var m2 = 0; m2 < melE.length; m2++) val += row[m2] * melE[m2]; mfccSum[c] += val; mfccSq[c] += val * val; }
+    }
+    if (used < 30) throw new Error("silent");
+    var mfccMean = [], mfccStd = [];
+    for (var c2 = 1; c2 < 13; c2++){ var mu = mfccSum[c2] / used; mfccMean.push(mu); mfccStd.push(Math.sqrt(Math.max(0, mfccSq[c2] / used - mu * mu))); }
+    var loud = rmsDb.reduce(function(a, b){ return a + b; }, 0) / rmsDb.length;
+    var dyn = Math.sqrt(rmsDb.reduce(function(a, b){ return a + (b - loud) * (b - loud); }, 0) / rmsDb.length);
+    var fps = sr / H, env = new Float64Array(frames), W = 16, run = 0;
+    for (var i2 = 0; i2 < frames; i2++){ run += flux[i2]; if (i2 >= W) run -= flux[i2 - W]; env[i2] = Math.max(0, flux[i2] - run / Math.min(i2 + 1, W)); }
+    var r0 = 0; for (var i3 = 0; i3 < frames; i3++) r0 += env[i3] * env[i3];
+    var lagMin = Math.floor(fps * 60 / 200), lagMax = Math.ceil(fps * 60 / 60), ac = new Float64Array(lagMax + 2);
+    for (var L = lagMin - 1; L <= lagMax + 1; L++){ var s3 = 0; for (var i4 = 0; i4 + L < frames; i4++) s3 += env[i4] * env[i4 + L]; ac[L] = s3; }
+    var best = lagMin, bestScore = -1;
+    for (var L2 = lagMin; L2 <= lagMax; L2++){ var bpm0 = 60 * fps / L2, wgt = Math.exp(-0.5 * Math.pow(Math.log2(bpm0 / 120) / 0.9, 2)), sc = ac[L2] * wgt; if (sc > bestScore){ bestScore = sc; best = L2; } }
+    var A = ac[best - 1], B = ac[best], C = ac[best + 1], den = A - 2 * B + C;
+    var lag = best + (den ? 0.5 * (A - C) / den : 0);
+    var onset = 0; for (var i5 = 0; i5 < frames; i5++) onset += flux[i5]; onset /= frames;
+    var csum = 0; for (var c3 = 0; c3 < 12; c3++) csum += chroma[c3]; csum = csum || 1;
+    var ch = []; for (var c4 = 0; c4 < 12; c4++) ch.push(chroma[c4] / csum);
+    var key = { tonic:0, minor:false, score:-2 };
+    for (var t = 0; t < 12; t++){
+      var rot = []; for (var j = 0; j < 12; j++) rot.push(ch[(j + t) % 12]);
+      var sM = pearson(rot, MAJ), sm = pearson(rot, MIN);
+      if (sM > key.score) key = { tonic:t, minor:false, score:sM };
+      if (sm > key.score) key = { tonic:t, minor:true, score:sm };
+    }
+    return { mfccMean:mfccMean, mfccStd:mfccStd, centroid:cent / used, rolloff:roll / used, flatness:flat / used, bass:bass / used,
+             loud:loud, dyn:dyn, onset:onset, bpm:60 * fps / lag, pulse:r0 ? B / r0 : 0, chroma:ch, key:key, dance:null, engine:"maison" };
+  }
+
+  var NOTE_IDX = { C:0, "C#":1, Db:1, D:2, "D#":3, Eb:3, E:4, F:5, "F#":6, Gb:6, G:7, "G#":8, Ab:8, A:9, "A#":10, Bb:10, B:11 };
+  // Optional: refine tempo, key and danceability with Essentia (44.1 kHz audio)
+  function refineWithEssentia(feat, x, sr, ess){
+    if (!ess || sr !== 44100) return feat;
+    var mid = x.length > sr * 22 ? x.subarray(Math.floor((x.length - sr * 20) / 2), Math.floor((x.length + sr * 20) / 2)) : x;
+    var v = ess.arrayToVector(mid);
+    try {
+      var r = ess.RhythmExtractor2013(v, 208, "degara", 40);
+      if (r && r.bpm > 30) feat.bpm = r.bpm;
+      var k = ess.KeyExtractor(v, true, 4096, 4096, 12, 3500, 60, 25, 0.2, "bgate", 44100);
+      if (k && NOTE_IDX[k.key] != null) feat.key = { tonic:NOTE_IDX[k.key], minor:k.scale === "minor", score:k.strength };
+      var d = ess.Danceability(v, 8800, 150, 44100);
+      if (d && isFinite(d.danceability)) feat.dance = d.danceability;
+      feat.engine = "essentia";
+    } catch (e) {}
+    try { v.delete(); } catch (e) {}
+    return feat;
+  }
+
+  // ---- comparison ----
+  function camelot(k){ var p = k.minor ? (k.tonic + 3) % 12 : k.tonic; return { n:((p * 7) % 12 + 7) % 12 + 1, minor:k.minor }; }
+  function keyDist(a, b){ var A = camelot(a), B = camelot(b), d = Math.abs(A.n - B.n); return Math.min(d, 12 - d) + (A.minor !== B.minor ? 0.5 : 0); }
+  function tempoDist(a, b){ return Math.min(Math.abs(Math.log2(a / b)), Math.abs(Math.log2(a * 2 / b)), Math.abs(Math.log2(a / 2 / b))); }
+  var NOTES = ["Do","Do♯","Ré","Mi♭","Mi","Fa","Fa♯","Sol","La♭","La","Si♭","Si"];
+  function keyName(k){ return NOTES[k.tonic] + " " + (k.minor ? "mineur" : "majeur"); }
+  function camelotName(k){ var c = camelot(k); return c.n + (c.minor ? "A" : "B"); }
+
+  // refs: features of 1-3 references; cands: candidate features; W: {timbre, rythme, energie, tonalite}
+  function rankMulti(refs, cands, W){
+    var all = refs.concat(cands);
+    var scal = function(f){ return f.mfccMean.concat(f.mfccStd.map(function(v){ return v * 0.7; }), [f.centroid, f.rolloff, f.flatness, f.bass]); };
+    var vec = all.map(scal), D = vec[0].length, sd = [];
+    for (var d = 0; d < D; d++){ var mu = 0, i; for (i = 0; i < vec.length; i++) mu += vec[i][d]; mu /= vec.length; var vv = 0; for (i = 0; i < vec.length; i++) vv += Math.pow(vec[i][d] - mu, 2); sd.push(Math.sqrt(vv / vec.length) || 1); }
+    function z(name){ var col = all.map(function(f){ return f[name] == null ? 0 : f[name]; }), m = 0, i; for (i = 0; i < col.length; i++) m += col[i]; m /= col.length; var s = 0; for (i = 0; i < col.length; i++) s += Math.pow(col[i] - m, 2); s = Math.sqrt(s / col.length) || 1; return col.map(function(v){ return (v - m) / s; }); }
+    var zL = z("loud"), zD = z("dyn"), zO = z("onset"), zP = z("pulse"), zDa = z("dance");
+    var hasDance = all.every(function(f){ return f.dance != null; });
+    var wsum = (W.timbre + W.rythme + W.energie + W.tonalite) || 1, R = refs.length;
+    function parts(ri, cj){
+      var a = all[ri], b = all[cj], t = 0;
+      for (var dd = 0; dd < D; dd++) t += Math.pow((vec[cj][dd] - vec[ri][dd]) / sd[dd], 2);
+      t = Math.sqrt(t / D);
+      var tempo = tempoDist(b.bpm, a.bpm) / 0.07;
+      var ry2 = tempo * tempo * 2 + Math.pow(zP[cj] - zP[ri], 2) + Math.pow(zO[cj] - zO[ri], 2), nry = 4;
+      if (hasDance){ ry2 += Math.pow(zDa[cj] - zDa[ri], 2) * 1.5; nry += 1.5; }
+      var en = Math.sqrt((Math.pow(zL[cj] - zL[ri], 2) + Math.pow(zD[cj] - zD[ri], 2) * 0.5 + Math.pow(zO[cj] - zO[ri], 2) * 0.5) / 2);
+      var cos = 0, na = 0, nb2 = 0; for (var k = 0; k < 12; k++){ cos += b.chroma[k] * a.chroma[k]; na += b.chroma[k] * b.chroma[k]; nb2 += a.chroma[k] * a.chroma[k]; }
+      var to = keyDist(b.key, a.key) / 2 + (1 - cos / (Math.sqrt(na * nb2) || 1)) * 4;
+      return { timbre:t, rythme:Math.sqrt(ry2 / nry), energie:en, tonalite:to };
+    }
+    var res = cands.map(function(_, ci){
+      var cj = R + ci, sum = { timbre:0, rythme:0, energie:0, tonalite:0 }, nearest = 0, nearD = Infinity;
+      for (var ri = 0; ri < R; ri++){
+        var p = parts(ri, cj);
+        var dr = (W.timbre * p.timbre + W.rythme * p.rythme + W.energie * p.energie + W.tonalite * p.tonalite) / wsum;
+        if (dr < nearD){ nearD = dr; nearest = ri; }
+        for (var g in sum) sum[g] += p[g] / R;
+      }
+      var dist = (W.timbre * sum.timbre + W.rythme * sum.rythme + W.energie * sum.energie + W.tonalite * sum.tonalite) / wsum;
+      return { d:dist, parts:sum, nearest:nearest };
+    });
+    var sorted = res.map(function(o){ return o.d; }).sort(function(a, b){ return a - b; });
+    var s = (sorted[Math.floor(sorted.length / 2)] || 1) * 1.25;
+    return res.map(function(o){ o.sim = Math.round(100 * Math.exp(-0.69 * Math.pow(o.d / s, 2))); return o; });
+  }
+  function describe(f, ref){
+    var out = [];
+    var dc = f.centroid - ref.centroid; if (dc > 0.22) out.push("plus lumineux"); else if (dc < -0.22) out.push("plus sombre");
+    var dl = f.loud - ref.loud; if (dl > 2.5) out.push("plus puissant"); else if (dl < -2.5) out.push("plus doux");
+    var db = f.bass - ref.bass; if (db > 0.06) out.push("plus de basses"); else if (db < -0.06) out.push("moins de basses");
+    if (f.dance != null && ref.dance != null){ var dd = f.dance - ref.dance; if (dd > 0.35) out.push("plus dansant"); else if (dd < -0.35) out.push("moins dansant"); }
+    if (tempoDist(f.bpm, ref.bpm) > 0.06) out.push(f.bpm > ref.bpm ? "plus rapide" : "plus lent");
+    return out;
+  }
+  return { analyze:analyze, refineWithEssentia:refineWithEssentia, rankMulti:rankMulti, describe:describe, keyName:keyName, camelotName:camelotName };
+})();
+</script>
+
+<!-- ============ Worker body (prefixed with the core at runtime) ============ -->
+<script type="text/plain" id="worker-src">
+var ESS = null, essTried = false;
+var ESS_WASM = "https://cdn.jsdelivr.net/npm/essentia.js@0.1.3/dist/essentia-wasm.umd.js";
+var ESS_CORE = "https://cdn.jsdelivr.net/npm/essentia.js@0.1.3/dist/essentia.js-core.umd.js";
+function loadEssentia(){
+  if (essTried) return ESS ? Promise.resolve(ESS) : Promise.resolve(null);
+  essTried = true;
+  return new Promise(function(resolve){
+    try {
+      self.exports = {};
+      importScripts(ESS_WASM, ESS_CORE);
+      var Mod = self.exports.EssentiaWASM;
+      var make = function(){ try { ESS = new self.Essentia(Mod); } catch (e) { ESS = null; } resolve(ESS); };
+      if (Mod.calledRun) make(); else { Mod.onRuntimeInitialized = make; setTimeout(function(){ if (!ESS) resolve(null); }, 20000); }
+    } catch (e) { resolve(null); }
+  });
+}
+self.onmessage = function(ev){
+  var m = ev.data;
+  var go = m.pro ? loadEssentia() : Promise.resolve(null);
+  go.then(function(ess){
+    try {
+      var feat = SillonCore.analyze(m.samples, m.sr);
+      feat = SillonCore.refineWithEssentia(feat, m.samples, m.sr, ess);
+      self.postMessage({ id:m.id, feat:feat });
+    } catch (e) { self.postMessage({ id:m.id, error:String(e && e.message || e) }); }
+  });
+};
+</script>
+
+<script>
+(() => {
+  const CORE_SRC = document.getElementById("core-src").textContent;
+  const SillonCore = new Function(CORE_SRC + "\nreturn SillonCore;")();
+
+  // ---------- logo ----------
+  const lg = document.getElementById("logo"), c = lg.getContext("2d");
+  function drawLogo(){
+    const cs = getComputedStyle(document.documentElement);
+    c.clearRect(0,0,92,92);
+    c.fillStyle = cs.getPropertyValue("--ink").trim(); c.beginPath(); c.arc(46,46,44,0,7); c.fill();
+    c.strokeStyle = "rgba(255,255,255,.14)"; c.lineWidth = 1;
+    for (let r = 19; r < 42; r += 3.3){ c.beginPath(); c.arc(46,46,r,0,7); c.stroke(); }
+    c.fillStyle = cs.getPropertyValue("--accent").trim(); c.beginPath(); c.arc(46,46,15,0,7); c.fill();
+    c.fillStyle = cs.getPropertyValue("--bg").trim(); c.beginPath(); c.arc(46,46,2.8,0,7); c.fill();
+  }
+  drawLogo();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => setTimeout(drawLogo, 30));
+
+  // ---------- helpers ----------
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const store = { get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+                  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } } };
+  const norm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\(.*?\)|\[.*?\]/g,"").replace(/feat\..*$/,"").replace(/[^a-z0-9]+/g," ").trim();
+  const out = $("out"), statusEl = $("status");
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let mode = "tracks", runId = 0, filter = "all", view = null;
+
+  function setStatus(msg, busy){
+    statusEl.replaceChildren();
+    if (busy){ const b = el("span","bar"); for (let i=0;i<4;i++) b.append(el("i")); statusEl.append(b); }
+    if (msg) statusEl.append(el("span", null, msg));
+    if (!busy) setProgress(null);
+  }
+  function setProgress(fr){ const p = $("progress"); if (fr == null){ p.hidden = true; return; } p.hidden = false; p.firstElementChild.style.width = Math.round(fr * 100) + "%"; }
+  const showError = msg => { setProgress(null); statusEl.replaceChildren(el("div","error",msg)); };
+  let toastT; function toast(msg){ const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3500); }
+
+  function jsonp(url, prefix){
+    return new Promise((resolve, reject) => {
+      const cb = prefix + Math.random().toString(36).slice(2);
+      const s = document.createElement("script");
+      const done = () => { clearTimeout(t); delete window[cb]; s.remove(); };
+      const t = setTimeout(() => { done(); reject(new Error("timeout")); }, 12000);
+      window[cb] = d => { done(); if (d && d.error) reject(new Error(d.error.message || "api")); else resolve(d); };
+      s.onerror = () => { done(); reject(new Error("network")); };
+      s.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cb;
+      document.head.append(s);
+    });
+  }
+  const dz = path => jsonp("https://api.deezer.com/" + path + (path.includes("?") ? "&" : "?") + "output=jsonp", "dz_");
+  const itunes = term => jsonp(`https://itunes.apple.com/search?entity=song&limit=5&country=FR&term=${encodeURIComponent(term)}`, "it_");
+  async function lf(params){
+    const key = store.get("sillon-lfkey", "");
+    if (!key) throw new Error("nokey");
+    const u = new URL("https://ws.audioscrobbler.com/2.0/");
+    Object.entries({ ...params, api_key:key, format:"json" }).forEach(([k,v]) => u.searchParams.set(k, v));
+    const d = await (await fetch(u)).json();
+    if (d.error) throw new Error(d.error === 10 || d.error === 26 ? "badkey" : (d.message || "lastfm"));
+    return d;
+  }
+  async function pool(items, n, fn){
+    const res = new Array(items.length); let i = 0;
+    await Promise.all(Array.from({ length:Math.min(n, items.length) }, async () => {
+      while (i < items.length){ const k = i++; try { res[k] = await fn(items[k], k); } catch { res[k] = null; } }
+    }));
+    return res;
+  }
+
+  // ---------- settings ----------
+  $("lfkey").value = store.get("sillon-lfkey", "");
+  function keyState(){
+    const k = store.get("sillon-lfkey", "");
+    $("keystate").textContent = k ? "Clé enregistrée : candidats Last.fm activés." : "Pas de clé : candidats Deezer uniquement.";
+    $("keystate").className = "small" + (k ? " keyok" : "");
+  }
+  $("lfkey").addEventListener("change", () => { store.set("sillon-lfkey", $("lfkey").value.trim()); keyState(); });
+  keyState();
+  $("pro").checked = store.get("sillon-pro", true);
+  $("pro").addEventListener("change", () => store.set("sillon-pro", $("pro").checked));
+
+  function setMode(m){
+    mode = m;
+    $("m-tracks").setAttribute("aria-pressed", m === "tracks");
+    $("m-artists").setAttribute("aria-pressed", m === "artists");
+    $("q").placeholder = m === "tracks" ? "Artiste et titre, ou lien Deezer" : "Nom de l'artiste";
+    $("hint").textContent = m === "tracks" ? "Exemples : « Daft Punk Digital Love », « Billie Eilish Ocean Eyes »" : "Exemples : « Christine and the Queens », « Tame Impala »";
+    $("filelabel").hidden = m !== "tracks";
+  }
+  $("m-tracks").onclick = () => setMode("tracks");
+  $("m-artists").onclick = () => setMode("artists");
+
+  // ---------- history & favourites ----------
+  function pushHist(item){
+    const h = store.get("sillon-history", []).filter(x => !(x.label === item.label && x.mode === item.mode));
+    h.unshift(item); store.set("sillon-history", h.slice(0, 8)); renderHist();
+  }
+  function renderHist(){
+    const h = store.get("sillon-history", []), box = $("history");
+    box.replaceChildren(); box.hidden = !h.length; if (!h.length) return;
+    box.append(el("span","label","Récents"));
+    h.forEach(x => { const b = el("button","h", x.label + (x.mode === "artists" ? " · artistes" : "")); b.type = "button";
+      b.onclick = () => x.mode === "artists" ? openArtist(x.ref) : startFromTrackIds(x.refs || [x.ref.id]); box.append(b); });
+    const clr = el("button","link","Effacer"); clr.type = "button"; clr.onclick = () => { store.set("sillon-history", []); renderHist(); }; box.append(clr);
+  }
+  const favKey = t => (t.artist + "|" + t.title).toLowerCase();
+  const isFav = t => store.get("sillon-favs", []).some(f => favKey(f) === favKey(t));
+  function toggleFav(t){
+    let f = store.get("sillon-favs", []);
+    f = f.some(x => favKey(x) === favKey(t)) ? f.filter(x => favKey(x) !== favKey(t)) : [{ artist:t.artist, title:t.title, link:t.link || "" }, ...f];
+    store.set("sillon-favs", f.slice(0, 300)); renderFavs();
+  }
+  function renderFavs(){
+    const f = store.get("sillon-favs", []), box = $("favs"), body = $("favs-body");
+    box.querySelector("summary").textContent = `Mes favoris (${f.length})`;
+    box.hidden = !f.length; body.replaceChildren(); if (!f.length) return;
+    const ul = el("ul");
+    f.forEach(t => { const li = el("li"); li.append(el("span",null,`${t.artist} – ${t.title}`)); const rm = el("button","link","Retirer"); rm.type = "button"; rm.onclick = () => { toggleFav(t); if (view) render(); }; li.append(rm); ul.append(li); });
+    body.append(ul, copyBar(() => store.get("sillon-favs", []).map(t => `${t.artist} – ${t.title}`).join("\n"), "Copier mes favoris"));
+  }
+  function copyBar(getText, label){
+    const cb = el("div","copybar");
+    const b = el("button","ghost",label); b.type = "button";
+    const msg = el("span",null,"Colle la liste dans Soundiiz ou TuneMyMusic pour créer une playlist Spotify, Deezer ou Apple Music.");
+    b.onclick = async () => {
+      const txt = getText();
+      try { await navigator.clipboard.writeText(txt); msg.textContent = "Liste copiée."; }
+      catch { cb.querySelector("textarea")?.remove(); const ta = el("textarea"); ta.value = txt; ta.rows = 6; cb.append(ta); ta.select(); msg.textContent = "Sélectionne le texte et copie-le."; }
+    };
+    cb.append(b, msg); return cb;
+  }
+
+  // ---------- audio preview ----------
+  const audio = new Audio(); let playingBtn = null;
+  const resetPlay = () => { if (playingBtn){ playingBtn.textContent = playingBtn.dataset.idle || "▶"; playingBtn.setAttribute("aria-pressed","false"); playingBtn = null; } };
+  audio.addEventListener("ended", resetPlay);
+  function playBtn(url, cls = "play", idle = "▶", busy = "❚❚"){
+    const b = el("button", cls, idle); b.type = "button"; b.dataset.idle = idle; b.setAttribute("aria-label","Écouter un extrait"); b.setAttribute("aria-pressed","false");
+    b.onclick = () => {
+      if (playingBtn === b){ audio.pause(); resetPlay(); return; }
+      resetPlay(); audio.src = url; audio.play().catch(() => {}); b.textContent = busy; b.setAttribute("aria-pressed","true"); playingBtn = b;
+    };
+    return b;
+  }
+
+  // ================= analysis engine =================
+  const FEAT_V = "sillon-feat-v3";
+  let featStore = store.get(FEAT_V, {});
+  function cacheGet(k){ return featStore[k] || null; }
+  function cacheSet(k, f){
+    const r = x => typeof x === "number" ? Math.round(x * 1000) / 1000 : Array.isArray(x) ? x.map(r) : (x && typeof x === "object") ? Object.fromEntries(Object.entries(x).map(([a,b]) => [a, r(b)])) : x;
+    featStore[k] = { ...r(f), t:Date.now() };
+    const keys = Object.keys(featStore);
+    if (keys.length > 500) keys.sort((a, b) => featStore[a].t - featStore[b].t).slice(0, keys.length - 450).forEach(k2 => delete featStore[k2]);
+    if (!store.set(FEAT_V, featStore)){ featStore = {}; store.set(FEAT_V, {}); }
+  }
+  $("clearCache").onclick = () => { featStore = {}; store.set(FEAT_V, {}); toast("Mémoire des analyses vidée."); };
+
+  let actx = null;
+  function getCtx(){
+    if (actx) return actx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    try { actx = new AC({ sampleRate:44100 }); } catch { actx = new AC(); }
+    return actx;
+  }
+  async function decode(ab, fromMiddle){
+    const ctx = getCtx();
+    const buf = await new Promise((res, rej) => { const p = ctx.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); });
+    const sr = buf.sampleRate, max = sr * 30;
+    let start = 0, len = buf.length;
+    if (len > max){ start = fromMiddle ? Math.floor((len - max) / 2) : 0; len = max; }
+    const x = new Float32Array(len);
+    for (let ch = 0; ch < buf.numberOfChannels; ch++){ const d = buf.getChannelData(ch); for (let i = 0; i < len; i++) x[i] += d[start + i] / buf.numberOfChannels; }
+    return { samples:x, sr };
+  }
+
+  // worker pool (falls back to the main thread if workers are unavailable)
+  const workers = []; let wNext = 0, wId = 0; const waiting = new Map();
+  (function initWorkers(){
+    try {
+      const src = CORE_SRC + "\n" + $("worker-src").textContent;
+      const url = URL.createObjectURL(new Blob([src], { type:"text/javascript" }));
+      const n = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
+      for (let i = 0; i < n; i++){
+        const w = new Worker(url);
+        w.onmessage = e => { const p = waiting.get(e.data.id); if (!p) return; waiting.delete(e.data.id); e.data.error ? p.reject(new Error(e.data.error)) : p.resolve(e.data.feat); };
+        w.onerror = () => {};
+        workers.push(w);
+      }
+    } catch { workers.length = 0; }
+  })();
+  function analyzeSamples(samples, sr){
+    const pro = $("pro").checked;
+    if (!workers.length){
+      return new Promise(r => setTimeout(r, 0)).then(() => SillonCore.analyze(samples, sr));
+    }
+    return new Promise((resolve, reject) => {
+      const id = ++wId; waiting.set(id, { resolve, reject });
+      const w = workers[wNext++ % workers.length];
+      try { w.postMessage({ id, samples, sr, pro }, [samples.buffer]); } catch (e) { waiting.delete(id); reject(e); }
+    });
+  }
+  async function featuresFromUrl(url){
+    const r = await fetch(url, { mode:"cors" });
+    if (!r.ok) throw new Error("http " + r.status);
+    const { samples, sr } = await decode(await r.arrayBuffer(), false);
+    return analyzeSamples(samples, sr);
+  }
+  async function features(item){
+    const k = item.id ? "dz" + item.id : favKey(item);
+    const hit = cacheGet(k); if (hit) return hit;
+    let f = null;
+    if (item.preview){ try { f = await featuresFromUrl(item.preview); } catch {} }
+    if (!f){
+      try {
+        const d = await itunes(`${item.artist} ${item.title}`);
+        const h = (d.results || []).find(r => norm(r.artistName) === norm(item.artist)) || (d.results || [])[0];
+        if (h?.previewUrl){ f = await featuresFromUrl(h.previewUrl); if (!item.preview) item.preview = h.previewUrl; if (!item.cover) item.cover = h.artworkUrl100; }
+      } catch {}
+    }
+    if (f) cacheSet(k, f);
+    return f;
+  }
+
+  // ================= learning from 👍 / 👎 =================
+  const WDEF = { timbre:3, rythme:2, energie:2, tonalite:1 };
+  const getWeights = () => ({ ...WDEF, ...store.get("sillon-weights", {}) });
+  const votes = () => store.get("sillon-votes", {});
+  const LBL = { timbre:"timbre", rythme:"rythme", energie:"énergie", tonalite:"tonalité" };
+  function learn(item, v){
+    const vs = votes(), k = favKey(item);
+    if (vs[k] === v){ delete vs[k]; store.set("sillon-votes", vs); render(); return; }
+    vs[k] = v; store.set("sillon-votes", vs);
+    const p = item.parts, keys = Object.keys(WDEF), vals = keys.map(g => p[g]);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const spread = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length) + 0.3;
+    const W = getWeights(), changes = [];
+    keys.forEach(g => {
+      const delta = 0.5 * v * (mean - p[g]) / spread;
+      const nw = Math.max(0, Math.min(4, W[g] + delta));
+      if (Math.abs(nw - W[g]) > 0.15) changes.push(LBL[g] + (nw > W[g] ? " ↑" : " ↓"));
+      W[g] = nw;
+    });
+    store.set("sillon-weights", W);
+    if (v < 0){ const ban = store.get("sillon-banned", []); ban.push(k); store.set("sillon-banned", ban.slice(-500)); view.items = view.items.filter(i => favKey(i) !== k); }
+    applyRanking(); render();
+    toast(v > 0 ? `Noté 👍${changes.length ? " · réglages ajustés : " + changes.join(", ") : ""}` : `Retiré des résultats${changes.length ? " · réglages ajustés : " + changes.join(", ") : ""}`);
+  }
+  $("resetLearn").onclick = () => { store.set("sillon-weights", {}); store.set("sillon-votes", {}); store.set("sillon-banned", []); if (view?.mode === "tracks"){ applyRanking(); render(); } toast("Préférences apprises réinitialisées."); };
+
+  // ================= references =================
+  // ref: { kind:"deezer"|"file", id?, title, artist, artistId?, album?, year?, cover?, preview?, link?, duration?, feat?, seedArtistIds? }
+  async function deezerRef(id){
+    const t = await dz("track/" + id);
+    return { kind:"deezer", id:t.id, title:t.title, artist:t.artist?.name, artistId:t.artist?.id, album:t.album?.title, year:(t.release_date || "").slice(0,4),
+             cover:t.album?.cover_big || t.album?.cover_medium, preview:t.preview, link:t.link, duration:t.duration, tags:[] };
+  }
+  async function fileRef(file){
+    const base = file.name.replace(/\.[a-z0-9]+$/i, "").replace(/_/g, " ").trim();
+    const parts = base.split(/\s+[-–—]\s+/);
+    const ref = { kind:"file", title:parts.length > 1 ? parts.slice(1).join(" - ") : base, artist:parts.length > 1 ? parts[0] : "", file:true, url:URL.createObjectURL(file) };
+    setStatus("Lecture et analyse de ton fichier…", true);
+    const { samples, sr } = await decode(await file.arrayBuffer(), true);
+    ref.feat = await analyzeSamples(samples, sr);
+    // find seeds for candidates from the file name
+    try {
+      const d = await dz("search?limit=3&q=" + encodeURIComponent(base));
+      const hit = (d.data || [])[0];
+      if (hit && (!ref.artist || norm(hit.artist?.name) === norm(ref.artist))){ ref.seedArtistIds = [hit.artist.id]; ref.artist = ref.artist || hit.artist.name; ref.cover = hit.album?.cover_medium; }
+    } catch {}
+    return ref;
+  }
+
+  async function startFromTrackIds(ids){
+    const my = ++runId;
+    setStatus("Lecture de la fiche du morceau…", true);
+    try {
+      const refs = await Promise.all(ids.map(deezerRef));
+      if (my !== runId) return;
+      runSearch(refs);
+    } catch { if (my === runId) showError("Impossible de joindre Deezer. Vérifie ta connexion internet, puis réessaie."); }
+  }
+
+  // ================= candidate pool =================
+  const fromDeezer = (x, match) => ({ id:x.id, title:x.title, artist:x.artist?.name, artistId:x.artist?.id, album:x.album?.title, cover:x.album?.cover_medium, preview:x.preview, link:x.link, rank:x.rank || 0, match });
+  async function poolFor(artistId, ref){
+    const hasKey = !!store.get("sillon-lfkey", "");
+    const jobs = [
+      dz(`artist/${artistId}/radio?limit=50`).then(d => (d.data || []).map(x => fromDeezer(x))).catch(() => []),
+      dz(`artist/${artistId}/related?limit=25`).then(async d => {
+        const tops = await pool(d.data || [], 5, a => dz(`artist/${a.id}/top?limit=3`));
+        return tops.flatMap(t => (t?.data || []).slice(0, 2).map(x => fromDeezer(x)));
+      }).catch(() => []),
+    ];
+    if (hasKey && ref.title && ref.artist && ref.kind === "deezer"){
+      jobs.push(lf({ method:"track.getsimilar", artist:ref.artist, track:ref.title, autocorrect:1, limit:80 })
+        .then(d => (d?.similartracks?.track || []).map(x => ({ title:x.name, artist:x.artist?.name, match:Number(x.match) || 0 }))).catch(() => []));
+      jobs.push(lf({ method:"track.gettoptags", artist:ref.artist, track:ref.title, autocorrect:1 }).then(async d => {
+        const tags = (d?.toptags?.tag || []).slice(0, 8).map(x => x.name);
+        ref.tags = tags;
+        if (!tags[0]) return [];
+        const tt = await lf({ method:"tag.gettoptracks", tag:tags[0], limit:40 });
+        return (tt?.tracks?.track || []).map(x => ({ title:x.name, artist:x.artist?.name }));
+      }).catch(() => []));
+    }
+    return Promise.all(jobs);
+  }
+  async function buildPool(refs, depth, exclude){
+    const lists = [];
+    for (const r of refs){
+      const ids = r.kind === "deezer" ? [r.artistId] : (r.seedArtistIds || []);
+      for (const id of ids) lists.push(...await poolFor(id, r));
+    }
+    const refArtists = new Set(refs.map(r => norm(r.artist)).filter(Boolean));
+    const refIds = new Set(refs.map(r => r.id).filter(Boolean));
+    const banned = new Set(store.get("sillon-banned", []));
+    const merged = [], seen = new Set(), perArtist = {};
+    const maxLen = Math.max(...lists.map(l => l.length), 0);
+    for (let i = 0; i < maxLen; i++) for (const l of lists){
+      const it = l[i]; if (!it || !it.artist || !it.title) continue;
+      const a = norm(it.artist), key = a + "|" + norm(it.title);
+      if (seen.has(key) || banned.has(favKey(it)) || (exclude && refArtists.has(a)) || (it.id && refIds.has(it.id))) continue;
+      if ((perArtist[a] = (perArtist[a] || 0) + 1) > 2) continue;
+      seen.add(key); merged.push(it);
+    }
+    return merged.slice(0, depth);
+  }
+
+  // ================= main search =================
+  async function runSearch(refs){
+    const my = ++runId; filter = "all";
+    const depth = Number($("depth").value), exclude = $("exclude").checked;
+    try {
+      // 1. analyse references
+      for (const r of refs){
+        if (r.feat) continue;
+        setStatus(`Écoute et analyse de « ${r.title} »…`, true);
+        r.feat = await features(r);
+        if (my !== runId) return;
+        if (!r.feat){ showError(`Impossible de récupérer l'extrait audio de « ${r.title} » pour l'analyser. Essaie une autre version du morceau, ou analyse ton propre fichier audio.`); return; }
+      }
+      const seedable = refs.some(r => r.kind === "deezer" || r.seedArtistIds?.length);
+      if (!seedable){ askSeed(refs); return; }
+      const deezerRefs = refs.filter(r => r.kind === "deezer");
+      if (deezerRefs.length) pushHist({ label:deezerRefs.map(r => `${r.artist} – ${r.title}`).join(" + "), mode:"tracks", refs:deezerRefs.map(r => r.id) });
+
+      // 2. candidates
+      setStatus("Constitution de la liste de candidats…", true);
+      let cands = await buildPool(refs, depth, exclude);
+      if (my !== runId) return;
+      await pool(cands.filter(c => !c.id), 5, async c => {
+        const d = await dz(`search?limit=5&q=${encodeURIComponent(`artist:"${c.artist}" track:"${c.title}"`)}`);
+        const hit = (d.data || []).find(x => norm(x.artist?.name) === norm(c.artist));
+        if (hit) Object.assign(c, fromDeezer(hit, c.match), { title:c.title, artist:c.artist });
+      });
+      if (my !== runId) return;
+
+      // 3. sound analysis
+      let done = 0, failed = 0;
+      const pro = $("pro").checked;
+      setStatus(`Analyse sonore des candidats : 0 / ${cands.length}${pro ? " (le premier chargement d'Essentia peut prendre quelques secondes)" : ""}`, true); setProgress(0);
+      await pool(cands, Math.max(3, workers.length * 2), async cnd => {
+        if (my !== runId) return;
+        cnd.feat = await features(cnd);
+        if (!cnd.feat) failed++;
+        done++;
+        if (my === runId){ setStatus(`Analyse sonore des candidats : ${done} / ${cands.length}`, true); setProgress(done / cands.length); }
+      });
+      if (my !== runId) return;
+      cands = cands.filter(x => x.feat);
+      if (!cands.length){ showError("Aucun extrait des morceaux candidats n'a pu être analysé. Ton navigateur bloque peut-être le téléchargement des extraits : essaie avec Chrome ou Firefox, ou mets Sillon en ligne (voir le guide)."); return; }
+      markDiscoveries(cands);
+      view = { mode:"tracks", refs, items:cands, failed };
+      applyRanking(); render();
+      setStatus(`${cands.length} morceaux analysés${failed ? ` (${failed} sans extrait disponible)` : ""}.`, false);
+    } catch (e){ if (my === runId) showError("La recherche a échoué (connexion ou service indisponible). Réessaie dans un instant."); }
+  }
+  function askSeed(refs){
+    setStatus("", false);
+    const box = el("section","picker");
+    box.append(el("h2",null,"À quoi ressemble ce morceau ?"), el("p","small","Sillon a besoin d'un point de départ pour trouver des candidats. Indique un artiste au son proche."));
+    const row = el("div","addref"); const inp = el("input"); inp.id = "seedq"; inp.placeholder = "Un artiste au son proche";
+    const b = el("button",null,"Continuer"); b.type = "button";
+    b.onclick = async () => {
+      const q = inp.value.trim(); if (!q) return;
+      try { const d = await dz("search/artist?limit=1&q=" + encodeURIComponent(q)); const a = d.data?.[0];
+        if (!a){ showError(`Aucun artiste trouvé pour « ${q} ».`); return; }
+        refs.forEach(r => { if (r.kind === "file" && !r.seedArtistIds?.length) r.seedArtistIds = [a.id]; });
+        runSearch(refs);
+      } catch { showError("Impossible de joindre Deezer."); }
+    };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); b.click(); } });
+    row.append(inp, b); box.append(row); out.replaceChildren(box); inp.focus();
+  }
+  function markDiscoveries(items){
+    const ranks = items.map(i => i.rank).filter(Boolean).sort((a,b) => a - b);
+    const median = ranks.length ? ranks[Math.floor(ranks.length / 2)] : 0;
+    items.forEach(i => { i.discovery = !!(i.rank && median && i.rank < median); });
+  }
+  function applyRanking(){
+    const v = view; if (!v || v.mode !== "tracks" || !v.items.length) return;
+    const res = SillonCore.rankMulti(v.refs.map(r => r.feat), v.items.map(i => i.feat), getWeights());
+    v.items.forEach((it, i) => Object.assign(it, res[i]));
+    v.items.sort((a, b) => a.d - b.d);
+  }
+
+  // ================= search box / picker =================
+  function picker(list, onPick, title, container){
+    const box = el("section","picker");
+    if (title) box.append(el("h2",null,title));
+    list.forEach(it => {
+      const b = el("button","cand"); b.type = "button";
+      const img = el("img"); img.alt = ""; img.loading = "lazy";
+      const info = el("div");
+      if (it.title){ img.src = it.album?.cover_medium || ""; info.append(el("b",null,it.title), el("span",null,`${it.artist?.name} · ${it.album?.title || ""}`)); }
+      else { img.src = it.picture_medium || ""; info.append(el("b",null,it.name), el("span",null,`${(it.nb_fan || 0).toLocaleString("fr-FR")} fans sur Deezer`)); }
+      b.append(img, info, el("span","label","Choisir")); b.onclick = () => onPick(it);
+      box.append(b);
+    });
+    container.replaceChildren(box);
+  }
+  async function search(text){
+    const my = ++runId; view = null; filter = "all";
+    setStatus("Recherche dans le catalogue Deezer…", true);
+    try {
+      const d = await dz((mode === "tracks" ? "search" : "search/artist") + "?limit=6&q=" + encodeURIComponent(text));
+      if (my !== runId) return;
+      const list = d.data || [];
+      if (!list.length){ setStatus("",false); out.replaceChildren(el("div","error",`Rien trouvé pour « ${text} ». Vérifie l'orthographe ou essaie avec l'artiste et le titre.`)); return; }
+      setStatus("Choisis le bon résultat.", false);
+      picker(list, it => mode === "tracks" ? startFromTrackIds([it.id]) : openArtist({ id:it.id }), mode === "tracks" ? "Quel morceau ?" : "Quel artiste ?", out);
+    } catch { if (my === runId) showError("Impossible de joindre Deezer. Vérifie ta connexion internet, puis réessaie."); }
+  }
+  $("f").addEventListener("submit", e => {
+    e.preventDefault();
+    const text = $("q").value.trim(); if (!text) return;
+    const dzTrack = text.match(/deezer\.com\/(?:[a-z]{2}\/)?track\/(\d+)/i), dzArtist = text.match(/deezer\.com\/(?:[a-z]{2}\/)?artist\/(\d+)/i);
+    if (dzTrack){ setMode("tracks"); return startFromTrackIds([dzTrack[1]]); }
+    if (dzArtist){ setMode("artists"); return openArtist({ id:dzArtist[1] }); }
+    if (/^https?:\/\//i.test(text)){ showError("Seuls les liens Deezer sont reconnus. Pour Spotify ou YouTube, tape l'artiste et le titre."); return; }
+    search(text);
+  });
+  async function handleFile(file, add){
+    if (!file) return;
+    const my = ++runId;
+    try {
+      const ref = await fileRef(file);
+      if (my !== runId) return;
+      const refs = add && view?.mode === "tracks" ? [...view.refs, ref].slice(-3) : [ref];
+      runSearch(refs);
+    } catch { if (my === runId) showError("Ce fichier n'a pas pu être lu. Essaie un MP3, M4A, WAV ou FLAC."); }
+  }
+  $("file").addEventListener("change", e => { handleFile(e.target.files[0], false); e.target.value = ""; });
+
+  // ================= artists (audience-based) =================
+  async function openArtist(ref){
+    const my = ++runId; filter = "all";
+    const count = Number($("count").value);
+    setStatus("Lecture de la fiche de l'artiste…", true);
+    try {
+      const a = await dz("artist/" + ref.id);
+      if (my !== runId) return;
+      const reference = { artist:a.name, cover:a.picture_big || a.picture_medium, fans:a.nb_fan, albums:a.nb_album, link:a.link, tags:[] };
+      pushHist({ label:a.name, mode:"artists", ref:{ id:a.id } });
+      let list = [], source = "deezer";
+      if (store.get("sillon-lfkey", "")){
+        try {
+          const [sim, tags] = await Promise.all([
+            lf({ method:"artist.getsimilar", artist:a.name, autocorrect:1, limit:count }),
+            lf({ method:"artist.gettoptags", artist:a.name, autocorrect:1 }).catch(() => null),
+          ]);
+          reference.tags = (tags?.toptags?.tag || []).slice(0, 8).map(x => x.name);
+          list = (sim?.similarartists?.artist || []).map(x => ({ name:x.name, match:Number(x.match) || 0 }));
+          if (list.length) source = "lastfm";
+        } catch {}
+      }
+      let items;
+      setStatus("Recherche des artistes proches…", true);
+      if (source === "lastfm"){
+        const found = await pool(list, 5, async x => {
+          const s = await dz("search/artist?limit=3&q=" + encodeURIComponent(x.name));
+          const hit = (s.data || []).find(y => norm(y.name) === norm(x.name)) || (s.data || [])[0];
+          if (!hit) return null;
+          const top = await dz(`artist/${hit.id}/top?limit=1`);
+          return { id:hit.id, fans:hit.nb_fan, picture:hit.picture_medium, top:top.data?.[0] ? fromDeezer(top.data[0]) : null };
+        });
+        items = list.map((x, i) => { const f = found[i]; return { artistId:f?.id, artist:x.name, match:x.match, title:f?.top?.title || "", trackId:f?.top?.id, cover:f?.top?.cover || f?.picture, preview:f?.top?.preview, link:f?.top?.link, fans:f?.fans, rank:f?.fans || 0 }; });
+      } else {
+        const rel = await dz(`artist/${a.id}/related?limit=${count}`);
+        const arts = rel.data || [];
+        const tops = await pool(arts, 5, x => dz(`artist/${x.id}/top?limit=1`));
+        items = arts.map((x, i) => { const t = tops[i]?.data?.[0]; return { artistId:x.id, artist:x.name, title:t?.title || "", trackId:t?.id, cover:t?.album?.cover_medium || x.picture_medium, preview:t?.preview, link:t?.link || x.link, fans:x.nb_fan, rank:x.nb_fan || 0 }; });
+      }
+      if (my !== runId) return;
+      markDiscoveries(items);
+      view = { mode:"artists", reference, items, source };
+      render();
+      setStatus(`${items.length} artistes trouvés via ${source === "lastfm" ? "Last.fm" : "Deezer"}.`, false);
+    } catch { if (my === runId) showError("La recherche a échoué (connexion ou service indisponible). Réessaie dans un instant."); }
+  }
+
+  // ================= rendering =================
+  const PLATFORMS = [
+    ["Spotify", s => `https://open.spotify.com/search/${s}`],
+    ["Apple Music", s => `https://music.apple.com/fr/search?term=${s}`],
+    ["YouTube Music", s => `https://music.youtube.com/search?q=${s}`],
+  ];
+  const fmtDur = s => s ? `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}` : "";
+  const pct = (arr, v) => arr.length ? arr.filter(x => x <= v).length / arr.length : 0.5;
+  const level = p => p > 0.8 ? "très élevé" : p > 0.6 ? "élevé" : p > 0.4 ? "moyen" : p > 0.2 ? "faible" : "très faible";
+  function bar(label, value, hint){
+    const row = el("div","feat");
+    const m = el("div","meter"); const i = el("i"); i.style.width = Math.max(4, Math.min(100, Math.round(value * 100))) + "%"; m.append(i);
+    row.append(el("span",null,label), m, el("span","feat-v",hint));
+    return row;
+  }
+  function links(t, wrap){
+    if (t.link){ const a = el("a",null,"Deezer"); a.href = t.link; a.target = "_blank"; a.rel = "noopener"; wrap.append(a); }
+    const qs = encodeURIComponent(`${t.artist} ${t.title || ""}`.trim());
+    PLATFORMS.forEach(([n,f]) => { const a = el("a",null,n); a.href = f(qs); a.target = "_blank"; a.rel = "noopener"; wrap.append(a); });
+  }
+  function filterButtons(){
+    const fl = el("div","filters");
+    [["all","Tous"],["known","Plus connus"],["disc","Découvertes"]].forEach(([k,lbl]) => {
+      const b = el("button",null,lbl); b.type = "button"; b.setAttribute("aria-pressed", filter === k); b.onclick = () => { filter = k; render(); }; fl.append(b);
+    });
+    return fl;
+  }
+  const render = () => view && (view.mode === "tracks" ? renderSonic() : renderArtists());
+
+  function renderSonic(){
+    const { refs, items } = view;
+    const parts = [];
+
+    // references
+    const rsec = el("section","refs");
+    rsec.append(el("div","label", refs.length > 1 ? `Références (${refs.length})` : "Morceau de référence"));
+    if (refs.length === 1){
+      const r = refs[0];
+      const card = el("div","ref-card");
+      const im = el("img"); im.alt = ""; im.src = r.cover || "";
+      const info = el("div"); info.style.cssText = "display:grid;gap:6px;min-width:0";
+      info.append(el("h2","ref-title", r.artist ? `${r.artist} – ${r.title}` : r.title));
+      const meta = r.kind === "file" ? "Ton fichier audio" : [r.album, r.year, fmtDur(r.duration)].filter(Boolean).join(" · ");
+      if (meta) info.append(el("div","ref-meta",meta));
+      if (r.tags?.length){ const tg = el("div","tags"); r.tags.forEach(t => tg.append(el("span","chip",t))); info.append(tg); }
+      const ls = el("div","listen");
+      const src = r.url || r.preview;
+      if (src) ls.append(playBtn(src, "ghost", "▶ Écouter", "❚❚ Pause"));
+      if (r.link){ const a = el("a",null,"Ouvrir sur Deezer"); a.href = r.link; a.target = "_blank"; a.rel = "noopener"; ls.append(a); }
+      info.append(ls); card.append(im, info); rsec.append(card);
+    }
+    const chips = el("div","refchips");
+    if (refs.length > 1) refs.forEach((r, i) => {
+      const ch = el("div","refchip");
+      if (r.cover){ const im = el("img"); im.alt = ""; im.src = r.cover; ch.append(im); } else ch.append(el("span","fileic","♫"));
+      ch.append(el("span",null, r.artist ? `${r.artist} – ${r.title}` : r.title));
+      const x = el("button",null,"✕"); x.type = "button"; x.setAttribute("aria-label", `Retirer ${r.title}`);
+      x.onclick = () => { const nr = refs.filter((_, j) => j !== i); runSearch(nr); };
+      ch.append(x); chips.append(ch);
+    });
+    rsec.append(chips);
+    if (refs.length < 3){
+      const add = el("div","addref");
+      const inp = el("input"); inp.id = "addq"; inp.placeholder = "Ajouter une référence : artiste et titre";
+      const b = el("button","ghost","Ajouter"); b.type = "button";
+      const fl = el("label","filebtn"); fl.append(document.createTextNode("♫ ou un fichier"));
+      const fi = el("input"); fi.type = "file"; fi.accept = "audio/*,.mp3,.m4a,.wav,.flac,.ogg"; fi.onchange = () => handleFile(fi.files[0], true); fl.append(fi);
+      const res = el("div");
+      b.onclick = async () => {
+        const q = inp.value.trim(); if (!q) return;
+        try { const d = await dz("search?limit=5&q=" + encodeURIComponent(q));
+          if (!(d.data || []).length){ res.replaceChildren(el("p","small",`Rien trouvé pour « ${q} ».`)); return; }
+          picker(d.data, it => { res.replaceChildren(); startAdd(it.id); }, null, res);
+        } catch { res.replaceChildren(el("p","small","Impossible de joindre Deezer.")); }
+      };
+      inp.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); b.click(); } });
+      add.append(inp, b, fl); rsec.append(add, res);
+      if (refs.length === 1) rsec.append(el("p","small","Ajoute jusqu'à 2 autres morceaux pour chercher ce qui ressemble à l'ensemble."));
+    }
+    parts.push(rsec);
+
+    // measured profile
+    const allF = [...refs.map(r => r.feat), ...items.map(i => i.feat)];
+    const prof = el("div","profile");
+    prof.append(el("div","label", refs.length > 1 ? "Profil sonore commun" : "Profil sonore mesuré"));
+    const facts = el("div","facts");
+    const tempoTxt = refs.map(r => Math.round(r.feat.bpm)).join(" / ") + " BPM";
+    const keyTxt = refs.map(r => `${SillonCore.keyName(r.feat.key)} (${SillonCore.camelotName(r.feat.key)})`).join(" / ");
+    [["Tempo", tempoTxt], ["Tonalité", keyTxt]].forEach(([k,v]) => { const d = el("div"); d.append(el("span","label",k), el("b",null,v)); facts.append(d); });
+    prof.append(facts);
+    const avgP = name => refs.reduce((s, r) => s + pct(allF.map(f => f[name] ?? 0), r.feat[name] ?? 0), 0) / refs.length;
+    const rows = [["Énergie","loud"],["Brillance","centroid"],["Basses","bass"],["Rythme marqué","pulse"]];
+    if (allF.every(f => f.dance != null)) rows.push(["Côté dansant","dance"]);
+    rows.push(["Densité","onset"]);
+    rows.forEach(([lbl, k]) => { const p = avgP(k); prof.append(bar(lbl, p, level(p))); });
+    const pro = refs.every(r => r.feat.engine === "essentia");
+    prof.append(el("p","engine", (pro ? "Tempo, tonalité et côté dansant mesurés avec Essentia. " : "Analyse rapide (Essentia non chargé). ") + `Niveaux comparés aux ${items.length} morceaux analysés.`));
+    parts.push(prof);
+
+    // weights
+    const wbox = el("section","weights");
+    const wh = el("div","weights-head"); wh.append(el("div","label","Ce qui compte le plus pour toi"));
+    const nv = Object.keys(votes()).length; if (nv) wh.append(el("span","small",`Ajusté d'après tes ${nv} avis`));
+    wbox.append(wh);
+    const W = getWeights(), WL = ["ignoré","faible","moyen","fort","très fort"];
+    [["timbre","Timbre et texture"],["rythme","Rythme et tempo"],["energie","Énergie"],["tonalite","Tonalité et harmonie"]].forEach(([k,lbl]) => {
+      const row = el("label","wrow"); row.htmlFor = "w-" + k;
+      const inp = el("input"); inp.type = "range"; inp.min = 0; inp.max = 4; inp.step = "0.1"; inp.value = W[k]; inp.id = "w-" + k;
+      const val = el("span","wval", WL[Math.round(W[k])]);
+      inp.oninput = () => { val.textContent = WL[Math.round(inp.value)]; };
+      inp.onchange = () => { const w = getWeights(); w[k] = Number(inp.value); store.set("sillon-weights", w); applyRanking(); render(); $("w-" + k)?.focus(); };
+      row.append(el("span",null,lbl), inp, val); wbox.append(row);
+    });
+    parts.push(wbox);
+
+    // list
+    const sec = el("section","refs");
+    const lh = el("div","list-head");
+    lh.append(el("h2",null,"Morceaux à la sonorité proche"), el("span","legend",`Classés par ressemblance sonore sur ${items.length} candidats`));
+    sec.append(lh, filterButtons());
+    const count = Number($("count").value), onePer = $("onePer").checked, seenA = new Set(), vs = votes();
+    const shown = items.filter(i => filter === "all" || (filter === "disc" ? i.discovery : !i.discovery))
+      .filter(i => { if (!onePer) return true; const a = norm(i.artist); if (seenA.has(a)) return false; seenA.add(a); return true; })
+      .slice(0, count);
+    const ol = el("ol","tracks");
+    const PL = { timbre:"même texture", rythme:"même rythme", energie:"même énergie", tonalite:"tonalité proche" };
+    shown.forEach(t => {
+      const f = t.feat, myVote = vs[favKey(t)];
+      const li = el("li","track" + (myVote > 0 ? " liked" : ""));
+      const art = el("div","art"); const ai = el("img"); ai.alt = ""; ai.loading = "lazy"; ai.src = t.cover || ""; art.append(ai);
+      if (t.preview) art.append(playBtn(t.preview));
+      li.append(art);
+      const top = el("div","t-top");
+      const nm = el("div","t-name"); nm.append(document.createTextNode(t.title + " "), el("span",null,"— " + t.artist));
+      const pills = el("div","pills");
+      pills.append(el("span","pill p-conf",`Sonorité ${t.sim} %`));
+      if (t.discovery) pills.append(el("span","pill p-kind","Découverte"));
+      top.append(nm, pills); li.append(top);
+      const body = el("div"); body.style.cssText = "display:grid;gap:5px;min-width:0";
+      if (t.album) body.append(el("div","t-album",t.album));
+      const m = el("div","meter"); const bi = el("i"); bi.style.width = t.sim + "%"; m.append(bi); body.append(m);
+      const ch = el("div","chips");
+      ch.append(el("span","chip",`${Math.round(f.bpm)} BPM`), el("span","chip",SillonCore.keyName(f.key)));
+      Object.entries(t.parts).filter(([, v]) => v < 0.6).sort((a, b) => a[1] - b[1]).slice(0, 2).forEach(([k]) => ch.append(el("span","chip chip-ok",PL[k])));
+      const near = refs[t.nearest] || refs[0];
+      if (refs.length > 1) ch.append(el("span","chip",`plus proche de « ${near.title} »`));
+      SillonCore.describe(f, near.feat).forEach(d => ch.append(el("span","chip",d)));
+      body.append(ch);
+      const lk = el("div","listen");
+      links(t, lk);
+      if (t.id){ const ml = el("button","link","Similaires à ce titre"); ml.type = "button"; ml.onclick = () => { startFromTrackIds([t.id]); window.scrollTo({ top:0, behavior:reduced ? "auto" : "smooth" }); }; lk.append(ml); }
+      const vb = el("span","vote");
+      const up = el("button","up","👍"); up.type = "button"; up.setAttribute("aria-label","Bonne suggestion"); up.setAttribute("aria-pressed", myVote > 0);
+      const dn = el("button","dn","👎"); dn.type = "button"; dn.setAttribute("aria-label","Mauvaise suggestion, retirer");
+      up.onclick = () => learn(t, 1); dn.onclick = () => learn(t, -1);
+      vb.append(up, dn); lk.append(vb);
+      const fv = el("button","fav", isFav(t) ? "♥ Favori" : "♡ Garder"); fv.type = "button"; fv.setAttribute("aria-pressed", isFav(t));
+      fv.onclick = () => { toggleFav(t); const on = isFav(t); fv.textContent = on ? "♥ Favori" : "♡ Garder"; fv.setAttribute("aria-pressed", on); };
+      lk.append(fv);
+      body.append(lk); li.append(body); ol.append(li);
+    });
+    if (!shown.length) sec.append(el("p","legend","Aucun résultat pour ce filtre."));
+    sec.append(ol, copyBar(() => shown.map(i => `${i.artist} – ${i.title}`).join("\n"), "Copier la liste"));
+    parts.push(sec);
+    out.replaceChildren(...parts);
+  }
+  async function startAdd(id){
+    if (!view || view.mode !== "tracks") return;
+    if (view.refs.some(r => r.id === id)){ toast("Ce morceau est déjà une référence."); return; }
+    try { const r = await deezerRef(id); runSearch([...view.refs, r].slice(-3)); } catch { showError("Impossible de joindre Deezer."); }
+  }
+
+  function renderArtists(){
+    const { reference:r, items, source } = view, parts = [];
+    const ref = el("section","refs");
+    ref.append(el("div","label","Artiste de référence"));
+    const card = el("div","ref-card");
+    const im = el("img"); im.alt = ""; im.src = r.cover || "";
+    const info = el("div"); info.style.cssText = "display:grid;gap:6px;min-width:0";
+    info.append(el("h2","ref-title",r.artist));
+    const meta = [r.fans ? `${r.fans.toLocaleString("fr-FR")} fans` : "", r.albums ? `${r.albums} albums` : ""].filter(Boolean).join(" · ");
+    if (meta) info.append(el("div","ref-meta",meta));
+    if (r.tags?.length){ const tg = el("div","tags"); r.tags.forEach(t => tg.append(el("span","chip",t))); info.append(tg); }
+    if (r.link){ const ls = el("div","listen"); const a = el("a",null,"Ouvrir sur Deezer"); a.href = r.link; a.target = "_blank"; a.rel = "noopener"; ls.append(a); info.append(ls); }
+    card.append(im, info); ref.append(card); parts.push(ref);
+    const sec = el("section","refs");
+    const lh = el("div","list-head");
+    lh.append(el("h2",null,"Artistes similaires"), el("span","legend", source === "lastfm" ? "Source : Last.fm (public commun)" : "Source : artistes proches Deezer"));
+    sec.append(lh, filterButtons());
+    const shown = items.filter(i => filter === "all" || (filter === "disc" ? i.discovery : !i.discovery));
+    const maxM = Math.max(...items.map(i => i.match || 0), 0) || 1;
+    const ol = el("ol","tracks");
+    shown.forEach(t => {
+      const li = el("li","track");
+      const art = el("div","art"); const ai = el("img"); ai.alt = ""; ai.loading = "lazy"; ai.src = t.cover || ""; art.append(ai);
+      if (t.preview) art.append(playBtn(t.preview));
+      li.append(art);
+      const top = el("div","t-top"); top.append(el("div","t-name",t.artist));
+      const pills = el("div","pills");
+      if (t.match) pills.append(el("span","pill p-conf",`Proximité ${Math.round(t.match / maxM * 100)} %`));
+      if (t.discovery) pills.append(el("span","pill p-kind","Découverte"));
+      top.append(pills); li.append(top);
+      const body = el("div"); body.style.cssText = "display:grid;gap:4px;min-width:0";
+      const line = [t.title && `À écouter : « ${t.title} »`, t.fans ? `${t.fans.toLocaleString("fr-FR")} fans` : ""].filter(Boolean).join(" · ");
+      if (line) body.append(el("div","t-album",line));
+      const lk = el("div","listen"); links(t, lk);
+      if (t.artistId){ const ml = el("button","link","Artistes proches"); ml.type = "button"; ml.onclick = () => { openArtist({ id:t.artistId }); window.scrollTo({ top:0, behavior:reduced ? "auto" : "smooth" }); }; lk.append(ml); }
+      if (t.trackId){ const ms = el("button","link","Sonorités proches de ce titre"); ms.type = "button"; ms.onclick = () => { setMode("tracks"); startFromTrackIds([t.trackId]); window.scrollTo({ top:0, behavior:reduced ? "auto" : "smooth" }); }; lk.append(ms); }
+      body.append(lk); li.append(body); ol.append(li);
+    });
+    if (!items.length) sec.append(el("div","error","Aucun artiste similaire trouvé."));
+    sec.append(ol); parts.push(sec);
+    out.replaceChildren(...parts);
+  }
+
+  // ================= install (PWA) =================
+  let deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredPrompt = e; $("installbox").hidden = false; });
+  $("install").onclick = async () => { if (!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice.catch(() => {}); deferredPrompt = null; $("installbox").hidden = true; };
+  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+  renderHist(); renderFavs();
+  if (!store.get("sillon-lfkey", "")) setStatus("Astuce : ajoute une clé Last.fm gratuite dans « Réglages » pour élargir la recherche.", false);
+})();
+</script>
+</body>
+</html>

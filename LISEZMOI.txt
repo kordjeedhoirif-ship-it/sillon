@@ -1,0 +1,41 @@
+SILLON — trouver des morceaux à la sonorité proche
+===================================================
+
+UTILISER SILLON SUR TON ORDINATEUR
+Double-clique sur index.html : il s'ouvre dans ton navigateur (Chrome ou Firefox recommandés).
+Les autres fichiers servent uniquement pour la version en ligne.
+
+
+METTRE SILLON EN LIGNE GRATUITEMENT (pour l'utiliser sur ton téléphone)
+
+Option 1 — Netlify (le plus simple, 2 minutes)
+  1. Crée un compte gratuit sur https://app.netlify.com/signup
+  2. Va sur https://app.netlify.com/drop
+  3. Glisse-dépose le dossier « sillon » entier dans la page.
+  4. Netlify te donne une adresse du type https://nom-au-hasard.netlify.app
+     Tu peux changer ce nom dans « Site configuration » > « Change site name ».
+
+Option 2 — GitHub Pages
+  1. Crée un compte gratuit sur https://github.com
+  2. Crée un nouveau dépôt public (bouton « New »), par exemple « sillon ».
+  3. Clique sur « uploading an existing file » et dépose tous les fichiers du dossier
+     (index.html, sw.js, manifest.webmanifest et les icônes), puis « Commit changes ».
+  4. Dans le dépôt : Settings > Pages > « Deploy from a branch », branche « main », dossier « / (root) », Save.
+  5. Après une ou deux minutes, Sillon est en ligne à https://ton-pseudo.github.io/sillon/
+
+
+INSTALLER SILLON COMME UNE APPLICATION (une fois en ligne)
+  - Android (Chrome) : ouvre l'adresse, puis menu ⋮ > « Installer l'application »
+    (ou le bouton « Installer Sillon sur cet appareil » en bas de la page).
+  - iPhone (Safari) : ouvre l'adresse, bouton Partager > « Sur l'écran d'accueil ».
+  - Ordinateur (Chrome / Edge) : icône d'installation à droite de la barre d'adresse.
+
+
+À SAVOIR
+  - Aucune IA ni aucun jeton : Sillon utilise Deezer, Apple Music (iTunes) et Last.fm,
+    et toute l'analyse audio se fait dans ton navigateur.
+  - La clé Last.fm (facultative, gratuite) se colle dans « Réglages ».
+    Elle s'obtient sur https://www.last.fm/api/account/create
+  - Tes favoris, tes avis 👍/👎, ta clé et la mémoire des analyses restent dans le navigateur
+    de chaque appareil (ils ne se synchronisent pas entre ordinateur et téléphone).
+  - Pour mettre à jour la version en ligne : redépose le dossier (Netlify) ou les fichiers (GitHub).
