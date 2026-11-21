@@ -224,6 +224,14 @@ footer a{color:var(--accent)}
           <label class="check"><input type="checkbox" id="pro" checked> Analyse avancée (Essentia, plus précise)</label>
         </div>
         <div class="field">
+          <span class="label">Styles ajoutés à chaque recherche</span>
+          <div class="opts">
+            <label class="check"><input type="checkbox" id="st-kizomba" checked> Kizomba</label>
+            <label class="check"><input type="checkbox" id="st-afro" checked> Afro (afrobeats, afro pop, afro house)</label>
+          </div>
+          <p class="small">Sillon ajoute à ses candidats des morceaux de ces styles, tirés des playlists Deezer. Ils ne remontent dans les résultats que s'ils sonnent vraiment comme ton morceau.</p>
+        </div>
+        <div class="field">
           <label class="label" for="lfkey">Clé Last.fm (gratuite, recommandée)</label>
           <input id="lfkey" placeholder="colle ta clé API ici">
           <p class="small" id="keystate"></p>
@@ -248,6 +256,8 @@ footer a{color:var(--accent)}
     <div class="filters" role="group" aria-label="Sélection du jour">
       <button type="button" id="t-new" aria-pressed="true">Sélection et albums du moment</button>
       <button type="button" id="t-chart" aria-pressed="false">Morceaux en tendance</button>
+      <button type="button" id="t-kizomba" aria-pressed="false">Kizomba</button>
+      <button type="button" id="t-afro" aria-pressed="false">Afro</button>
     </div>
     <div class="shelf" id="shelf"><p class="small">Chargement des sorties du jour…</p></div>
   </section>
@@ -266,6 +276,7 @@ footer a{color:var(--accent)}
     <details><summary>Puis-je analyser mon propre fichier ?</summary><p>Oui, avec « Analyser un fichier audio ». Le fichier reste sur ton appareil : il est analysé dans le navigateur et n'est envoyé nulle part. Si le nom du fichier contient l'artiste (par exemple « Artiste - Titre.mp3 »), Sillon s'en sert pour trouver des candidats ; sinon il te demande un artiste ou un style proche.</p></details>
     <details><summary>Pourquoi certains morceaux ne sont pas analysés ?</summary><p>Il faut un extrait audio. Si Deezer n'en a pas, Sillon essaie Apple Music (iTunes). Sans extrait, le morceau est ignoré. Tous les titres viennent des catalogues : rien n'est inventé.</p></details>
     <details><summary>D'où vient la section « Aujourd'hui » ?</summary><p>Ton navigateur la récupère directement auprès de Deezer à chaque visite : la sélection de la rédaction de Deezer, les albums du moment et le classement des morceaux les plus écoutés dans ton pays. Elle change donc toute seule chaque jour, sans aucune manipulation. La « pépite du jour » est un morceau tiré au hasard dans cette sélection, le même pour toute la journée.</p></details>
+    <details><summary>Pourquoi des morceaux kizomba et afro apparaissent ?</summary><p>Sillon ajoute à chaque recherche des morceaux kizomba et afro tirés des playlists Deezer, pour que ces styles soient toujours représentés. Ils ne remontent dans les résultats que s'ils ressemblent vraiment à ton morceau. Tu peux les désactiver dans « Réglages ».</p></details>
     <details><summary>Est-ce que ça utilise une IA ou des jetons ?</summary><p>Non. Les recherches passent par les services gratuits de Deezer, Apple Music et Last.fm, et toute l'analyse se fait dans ton navigateur.</p></details>
     <details><summary>Et l'onglet « Artistes similaires » ?</summary><p>Il fonctionne par public commun (Last.fm ou Deezer), sans analyse sonore. Pour une ressemblance de son, utilise « Morceaux similaires ».</p></details>
   </section>
@@ -792,8 +803,44 @@ self.onmessage = function(ev){
     }
     return Promise.all(jobs);
   }
+  // ---- style sources (Deezer playlists) ----
+  const STYLES = {
+    kizomba:{ search:["kizomba", "kizomba zouk"], fixed:[] },
+    afro:{ search:["afrobeats"], fixed:[1257036831, 1440614715, 1440933255, 10567515462], chart:2 },
+  };
+  const styleCache = {};
+  function styleTracks(name){
+    if (styleCache[name]) return styleCache[name];
+    const S = STYLES[name];
+    styleCache[name] = (async () => {
+      const ids = new Set(S.fixed);
+      for (const q of S.search){
+        try { const d = await dz("search/playlist?limit=4&q=" + encodeURIComponent(q)); (d.data || []).slice(0, 3).forEach(p => ids.add(p.id)); } catch {}
+      }
+      const jobs = [...ids].slice(0, 6).map(id => dz(`playlist/${id}/tracks?limit=60`).then(d => d.data || []).catch(() => []));
+      if (S.chart != null) jobs.push(dz(`chart/${S.chart}/tracks?limit=50`).then(d => d.data || []).catch(() => []));
+      const lists = await Promise.all(jobs), seen = new Set(), outT = [];
+      const maxL = Math.max(0, ...lists.map(l => l.length));
+      for (let i = 0; i < maxL; i++) for (const l of lists){ const t = l[i]; if (t && t.id && !seen.has(t.id) && t.readable !== false){ seen.add(t.id); outT.push(t); } }
+      return outT;
+    })();
+    return styleCache[name];
+  }
+  const activeStyles = () => Object.keys(STYLES).filter(k => $("st-" + k)?.checked);
+  Object.keys(STYLES).forEach(k => {
+    const cb = $("st-" + k); if (!cb) return;
+    cb.checked = store.get("sillon-style-" + k, true);
+    cb.addEventListener("change", () => store.set("sillon-style-" + k, cb.checked));
+  });
+
   async function buildPool(refs, depth, exclude){
     const lists = [];
+    const styles = activeStyles();
+    if (styles.length){
+      const per = Math.max(8, Math.round(depth * 0.3 / styles.length));
+      const got = await Promise.all(styles.map(styleTracks));
+      got.forEach(l => { const a = [...l].sort(() => Math.random() - 0.5).slice(0, per); lists.push(a.map(x => ({ ...fromDeezer(x), style:true }))); });
+    }
     for (const r of refs){
       const ids = r.kind === "deezer" ? [r.artistId] : (r.seedArtistIds || []);
       for (const id of ids) lists.push(...await poolFor(id, r));
@@ -1237,13 +1284,23 @@ self.onmessage = function(ev){
     $("t-new").setAttribute("aria-pressed", todayTab === "new");
     $("t-chart").setAttribute("aria-pressed", todayTab === "chart");
     if (todayTab === "new" && todayData.releases && !todayData.releases.length && todayData.chart?.length) todayTab = "chart";
-    $("t-new").setAttribute("aria-pressed", todayTab === "new");
-    $("t-chart").setAttribute("aria-pressed", todayTab === "chart");
-    const list = todayTab === "new" ? todayData.releases : todayData.chart, shelf = $("shelf");
+    ["new","chart","kizomba","afro"].forEach(k => $("t-" + k).setAttribute("aria-pressed", todayTab === k));
+    const list = todayData[todayTab === "new" ? "releases" : todayTab], shelf = $("shelf");
     if (list == null){ shelf.replaceChildren(el("p","small","Chargement…")); return; }
     if (!list.length){ shelf.replaceChildren(el("p","small","Impossible de charger la sélection du jour. Vérifie ta connexion, puis recharge la page.")); return; }
     shelf.replaceChildren(...list.map(tile));
   }
+  ["kizomba","afro"].forEach(k => {
+    $("t-" + k).onclick = async () => {
+      todayTab = k; renderShelf();
+      if (!todayData[k]){
+        const l = await styleTracks(k).catch(() => []);
+        const r = seedRand(todayKey + k);
+        todayData[k] = [...l].sort(() => r() - 0.5).slice(0, 24).map(t => ({ title:t.title, artist:t.artist?.name || "", cover:t.album?.cover_medium, preview:t.preview, id:t.id }));
+        if (todayTab === k) renderShelf();
+      }
+    };
+  });
   $("t-new").onclick = () => { todayTab = "new"; renderShelf(); };
   $("t-chart").onclick = () => { todayTab = "chart"; renderShelf(); };
   function renderPick(p){
@@ -1261,7 +1318,7 @@ self.onmessage = function(ev){
   }
   async function loadToday(){
     const cached = store.get("sillon-today", null);
-    if (cached && cached.day === todayKey && cached.data?.releases?.length && cached.data?.chart?.length){ todayData = cached.data; renderShelf(); if (cached.pick) renderPick(cached.pick); return; }
+    if (cached && cached.day === todayKey && cached.data?.releases?.length && cached.data?.chart?.length){ todayData = { releases:cached.data.releases, chart:cached.data.chart }; renderShelf(); if (cached.pick) renderPick(cached.pick); return; }
     const [rel, sel, alb, ch] = await Promise.all([
       dz("editorial/0/releases?limit=24").catch(() => null),
       dz("editorial/0/selection").catch(() => null),
@@ -1287,7 +1344,7 @@ self.onmessage = function(ev){
       pick = { ...t, link:"https://www.deezer.com/track/" + t.id };
     }
     if (pick) renderPick(pick);
-    if (todayData.releases.length && todayData.chart.length) store.set("sillon-today", { day:todayKey, data:todayData, pick });
+    if (todayData.releases.length && todayData.chart.length) store.set("sillon-today", { day:todayKey, data:{ releases:todayData.releases, chart:todayData.chart }, pick });
   }
   loadToday().catch(() => { todayData = { releases:[], chart:[] }; renderShelf(); });
 
