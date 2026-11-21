@@ -246,8 +246,8 @@ footer a{color:var(--accent)}
     </div>
     <div class="pick" id="pick" hidden></div>
     <div class="filters" role="group" aria-label="Sélection du jour">
-      <button type="button" id="t-new" aria-pressed="true">Nouveautés</button>
-      <button type="button" id="t-chart" aria-pressed="false">Tendances</button>
+      <button type="button" id="t-new" aria-pressed="true">Sélection et albums du moment</button>
+      <button type="button" id="t-chart" aria-pressed="false">Morceaux en tendance</button>
     </div>
     <div class="shelf" id="shelf"><p class="small">Chargement des sorties du jour…</p></div>
   </section>
@@ -265,7 +265,7 @@ footer a{color:var(--accent)}
     <details><summary>Comment combiner plusieurs morceaux ?</summary><p>Après une première recherche, utilise « Ajouter une référence » (jusqu'à 3 morceaux ou fichiers). Sillon cherche alors les morceaux qui ressemblent à l'ensemble, pas seulement à l'un d'eux.</p></details>
     <details><summary>Puis-je analyser mon propre fichier ?</summary><p>Oui, avec « Analyser un fichier audio ». Le fichier reste sur ton appareil : il est analysé dans le navigateur et n'est envoyé nulle part. Si le nom du fichier contient l'artiste (par exemple « Artiste - Titre.mp3 »), Sillon s'en sert pour trouver des candidats ; sinon il te demande un artiste ou un style proche.</p></details>
     <details><summary>Pourquoi certains morceaux ne sont pas analysés ?</summary><p>Il faut un extrait audio. Si Deezer n'en a pas, Sillon essaie Apple Music (iTunes). Sans extrait, le morceau est ignoré. Tous les titres viennent des catalogues : rien n'est inventé.</p></details>
-    <details><summary>D'où vient la section « Aujourd'hui » ?</summary><p>Ton navigateur la récupère directement auprès de Deezer à chaque visite : les nouveautés mises en avant par la rédaction de Deezer et le classement des morceaux les plus écoutés dans ton pays. Elle change donc toute seule chaque jour, sans aucune manipulation. La « pépite du jour » est un morceau choisi au hasard parmi les nouveautés, le même pour toute la journée.</p></details>
+    <details><summary>D'où vient la section « Aujourd'hui » ?</summary><p>Ton navigateur la récupère directement auprès de Deezer à chaque visite : la sélection de la rédaction de Deezer, les albums du moment et le classement des morceaux les plus écoutés dans ton pays. Elle change donc toute seule chaque jour, sans aucune manipulation. La « pépite du jour » est un morceau tiré au hasard dans cette sélection, le même pour toute la journée.</p></details>
     <details><summary>Est-ce que ça utilise une IA ou des jetons ?</summary><p>Non. Les recherches passent par les services gratuits de Deezer, Apple Music et Last.fm, et toute l'analyse se fait dans ton navigateur.</p></details>
     <details><summary>Et l'onglet « Artistes similaires » ?</summary><p>Il fonctionne par public commun (Last.fm ou Deezer), sans analyse sonore. Pour une ressemblance de son, utilise « Morceaux similaires ».</p></details>
   </section>
@@ -1236,6 +1236,9 @@ self.onmessage = function(ev){
   function renderShelf(){
     $("t-new").setAttribute("aria-pressed", todayTab === "new");
     $("t-chart").setAttribute("aria-pressed", todayTab === "chart");
+    if (todayTab === "new" && todayData.releases && !todayData.releases.length && todayData.chart?.length) todayTab = "chart";
+    $("t-new").setAttribute("aria-pressed", todayTab === "new");
+    $("t-chart").setAttribute("aria-pressed", todayTab === "chart");
     const list = todayTab === "new" ? todayData.releases : todayData.chart, shelf = $("shelf");
     if (list == null){ shelf.replaceChildren(el("p","small","Chargement…")); return; }
     if (!list.length){ shelf.replaceChildren(el("p","small","Impossible de charger la sélection du jour. Vérifie ta connexion, puis recharge la page.")); return; }
@@ -1258,12 +1261,18 @@ self.onmessage = function(ev){
   }
   async function loadToday(){
     const cached = store.get("sillon-today", null);
-    if (cached && cached.day === todayKey){ todayData = cached.data; renderShelf(); if (cached.pick) renderPick(cached.pick); return; }
-    const [rel, ch] = await Promise.all([
+    if (cached && cached.day === todayKey && cached.data?.releases?.length && cached.data?.chart?.length){ todayData = cached.data; renderShelf(); if (cached.pick) renderPick(cached.pick); return; }
+    const [rel, sel, alb, ch] = await Promise.all([
       dz("editorial/0/releases?limit=24").catch(() => null),
+      dz("editorial/0/selection").catch(() => null),
+      dz("chart/0/albums?limit=24").catch(() => null),
       dz("chart/0/tracks?limit=24").catch(() => null),
     ]);
-    todayData.releases = (rel?.data || []).map(a => ({ title:a.title, artist:a.artist?.name || "", cover:a.cover_medium, albumId:a.id }));
+    const seenAlb = new Set();
+    todayData.releases = [...(rel?.data || []), ...(sel?.data || []), ...(alb?.data || [])]
+      .filter(a => a && a.id && !seenAlb.has(a.id) && seenAlb.add(a.id))
+      .slice(0, 30)
+      .map(a => ({ title:a.title, artist:a.artist?.name || "", cover:a.cover_medium, albumId:a.id }));
     todayData.chart = (ch?.data || []).map(t => ({ title:t.title, artist:t.artist?.name || "", cover:t.album?.cover_medium, preview:t.preview, id:t.id }));
     renderShelf();
     let pick = null;
@@ -1278,7 +1287,7 @@ self.onmessage = function(ev){
       pick = { ...t, link:"https://www.deezer.com/track/" + t.id };
     }
     if (pick) renderPick(pick);
-    if (todayData.releases.length || todayData.chart.length) store.set("sillon-today", { day:todayKey, data:todayData, pick });
+    if (todayData.releases.length && todayData.chart.length) store.set("sillon-today", { day:todayKey, data:todayData, pick });
   }
   loadToday().catch(() => { todayData = { releases:[], chart:[] }; renderShelf(); });
 
