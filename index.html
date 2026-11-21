@@ -805,8 +805,8 @@ self.onmessage = function(ev){
   }
   // ---- style sources (Deezer playlists) ----
   const STYLES = {
-    kizomba:{ search:["kizomba", "kizomba zouk"], fixed:[] },
-    afro:{ search:["afrobeats"], fixed:[1257036831, 1440614715, 1440933255, 10567515462], chart:2 },
+    kizomba:{ search:["kizomba", "kizomba zouk", "kizomba lento"], fixed:[], must:/kizomba|kiz\b/i, avoid:/salsa|bachata|sbk|reggaeton|latino/i },
+    afro:{ search:["afrobeats"], fixed:[1257036831, 1440614715, 1440933255, 10567515462], chart:2, must:/afro/i, avoid:/house|lounge|ibiza|chill/i },
   };
   const styleCache = {};
   function styleTracks(name){
@@ -815,7 +815,7 @@ self.onmessage = function(ev){
     styleCache[name] = (async () => {
       const ids = new Set(S.fixed);
       for (const q of S.search){
-        try { const d = await dz("search/playlist?limit=4&q=" + encodeURIComponent(q)); (d.data || []).slice(0, 3).forEach(p => ids.add(p.id)); } catch {}
+        try { const d = await dz("search/playlist?limit=12&q=" + encodeURIComponent(q)); (d.data || []).filter(p => S.must.test(p.title) && !S.avoid.test(p.title)).slice(0, 3).forEach(p => ids.add(p.id)); } catch {}
       }
       const jobs = [...ids].slice(0, 6).map(id => dz(`playlist/${id}/tracks?limit=60`).then(d => d.data || []).catch(() => []));
       if (S.chart != null) jobs.push(dz(`chart/${S.chart}/tracks?limit=50`).then(d => d.data || []).catch(() => []));
