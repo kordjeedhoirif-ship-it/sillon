@@ -295,6 +295,7 @@ footer a{color:var(--accent)}
         <div class="opts">
           <label class="check"><input type="checkbox" id="exclude" checked> Exclure l'artiste d'origine</label>
           <label class="check"><input type="checkbox" id="onePer" checked> 1 morceau max par artiste</label>
+          <label class="check"><input type="checkbox" id="samestyle" checked> Rester dans le style du morceau</label>
           <label class="check"><input type="checkbox" id="pro" checked> Analyse avancée (Essentia, plus précise)</label>
         </div>
         <div class="field">
@@ -347,6 +348,7 @@ footer a{color:var(--accent)}
     <details><summary>Pourquoi certains morceaux ne sont pas analysés ?</summary><p>Il faut un extrait audio. Si Deezer n'en a pas, Sillon essaie Apple Music (iTunes). Sans extrait, le morceau est ignoré. Tous les titres viennent des catalogues : rien n'est inventé.</p></details>
     <details><summary>D'où vient la section « Aujourd'hui » ?</summary><p>Ton navigateur la récupère directement auprès de Deezer à chaque visite : la sélection de la rédaction de Deezer, les albums du moment et le classement des morceaux les plus écoutés dans ton pays. Elle change donc toute seule chaque jour, sans aucune manipulation. La « pépite du jour » est un morceau tiré au hasard dans cette sélection, le même pour toute la journée.</p></details>
     <details><summary>Pourquoi des morceaux kizomba, afro, zouk, kompa, R&amp;B ou rap apparaissent ?</summary><p>Sillon ajoute à chaque recherche des morceaux de ces styles tirés des playlists de la rédaction Deezer, pour qu'ils soient toujours représentés. Ils ne remontent dans les résultats que s'ils ressemblent vraiment à ton morceau. Tu peux les désactiver dans « Réglages ».</p></details>
+    <details><summary>Comment Sillon reconnaît-il le style ?</summary><p>Il regarde dans quelles playlists de la rédaction Deezer apparaît l'artiste (kompa, zouk, kizomba, afrobeats, afro FR, R&amp;B, rap FR, rap US, reggaeton). Les candidats d'un style sans rapport sont écartés, ceux d'un style voisin (zouk et kompa, rap et R&amp;B…) sont gardés mais moins bien classés. Tu peux désactiver ce filtre dans « Réglages » (« Rester dans le style du morceau ») ou baisser le curseur « Style musical ».</p></details>
     <details><summary>Est-ce que ça utilise une IA ou des jetons ?</summary><p>Non. Les recherches passent par les services gratuits de Deezer, Apple Music et Last.fm, et toute l'analyse se fait dans ton navigateur.</p></details>
     <details><summary>Et l'onglet « Artistes similaires » ?</summary><p>Il fonctionne par public commun (Last.fm ou Deezer), sans analyse sonore. Pour une ressemblance de son, utilise « Morceaux similaires ».</p></details>
   </section>
@@ -419,20 +421,21 @@ var SillonCore = (function(){
     if (frames < 50) throw new Error("short");
     var re = new Float64Array(N), im = new Float64Array(N), mag = new Float64Array(T.nb), prevLog = new Float64Array(T.nb);
     var mfccSum = new Float64Array(13), mfccSq = new Float64Array(13), chroma = new Float64Array(12), melE = new Float64Array(T.filt.length);
-    var flux = new Float64Array(frames), rmsDb = [], cent = 0, roll = 0, flat = 0, bass = 0, used = 0;
+    var flux = new Float64Array(frames), fluxLo = new Float64Array(frames), fluxHi = new Float64Array(frames), rmsDb = [], cent = 0, roll = 0, flat = 0, bass = 0, used = 0;
+    var hiK = Math.ceil(2000 * N / sr);
     for (var f = 0; f < frames; f++){
       var s0 = f * H, e = 0, i;
       for (i = 0; i < N; i++){ var v = x[s0 + i]; e += v * v; re[i] = v * win[i]; im[i] = 0; }
       var rms = Math.sqrt(e / N);
       fft(re, im);
-      var tot = 0, wsum = 0, msum = 0, lsum = 0, bsum = 0, fl = 0;
+      var tot = 0, wsum = 0, msum = 0, lsum = 0, bsum = 0, fl = 0, flLo = 0, flHi = 0;
       for (var k = 0; k < T.nb; k++){
         var p = re[k] * re[k] + im[k] * im[k], m = Math.sqrt(p); mag[k] = m;
         tot += p; wsum += T.hzA[k] * m; msum += m; lsum += Math.log(m + 1e-9); if (k < T.bassK) bsum += p;
-        var lg = Math.log(1 + 100 * m), dd = lg - prevLog[k]; if (dd > 0) fl += dd; prevLog[k] = lg;
+        var lg = Math.log(1 + 100 * m), dd = lg - prevLog[k]; if (dd > 0){ fl += dd; if (k < T.bassK) flLo += dd; else if (k >= hiK) flHi += dd; } prevLog[k] = lg;
         if (T.pc[k] >= 0) chroma[T.pc[k]] += m;
       }
-      flux[f] = fl;
+      flux[f] = fl; fluxLo[f] = flLo; fluxHi[f] = flHi;
       if (rms < 1e-3 || tot <= 0) continue;
       used++; rmsDb.push(20 * Math.log10(rms));
       cent += Math.log2(wsum / msum + 1);
@@ -458,6 +461,18 @@ var SillonCore = (function(){
     var A = ac[best - 1], B = ac[best], C = ac[best + 1], den = A - 2 * B + C;
     var lag = best + (den ? 0.5 * (A - C) / den : 0);
     var onset = 0; for (var i5 = 0; i5 < frames; i5++) onset += flux[i5]; onset /= frames;
+    // groove fingerprint: where low (kick/bass) and high (hats/snare) onsets fall inside the beat
+    function bandEnv(src){
+      var e = new Float64Array(frames), rr = 0;
+      for (var q = 0; q < frames; q++){ rr += src[q]; if (q >= W) rr -= src[q - W]; e[q] = Math.max(0, src[q] - rr / Math.min(q + 1, W)); }
+      return e;
+    }
+    function acAt(e, l){ var l0 = Math.floor(l), fr = l - l0, s0 = 0, s1 = 0; for (var q = 0; q + l0 + 1 < frames; q++){ s0 += e[q] * e[q + l0]; s1 += e[q] * e[q + l0 + 1]; } return s0 * (1 - fr) + s1 * fr; }
+    var groove = [];
+    [bandEnv(fluxLo), bandEnv(fluxHi)].forEach(function(e){
+      var e0 = 0; for (var q = 0; q < frames; q++) e0 += e[q] * e[q];
+      for (var kk = 1; kk <= 8; kk++) groove.push(e0 ? acAt(e, lag * kk / 4) / e0 : 0);
+    });
     var csum = 0; for (var c3 = 0; c3 < 12; c3++) csum += chroma[c3]; csum = csum || 1;
     var ch = []; for (var c4 = 0; c4 < 12; c4++) ch.push(chroma[c4] / csum);
     var key = { tonic:0, minor:false, score:-2 };
@@ -468,7 +483,7 @@ var SillonCore = (function(){
       if (sm > key.score) key = { tonic:t, minor:true, score:sm };
     }
     return { mfccMean:mfccMean, mfccStd:mfccStd, centroid:cent / used, rolloff:roll / used, flatness:flat / used, bass:bass / used,
-             loud:loud, dyn:dyn, onset:onset, bpm:60 * fps / lag, pulse:r0 ? B / r0 : 0, chroma:ch, key:key, dance:null, engine:"maison" };
+             loud:loud, dyn:dyn, onset:onset, bpm:60 * fps / lag, pulse:r0 ? B / r0 : 0, chroma:ch, key:key, groove:groove, dance:null, engine:"maison" };
   }
 
   var NOTE_IDX = { C:0, "C#":1, Db:1, D:2, "D#":3, Eb:3, E:4, F:5, "F#":6, Gb:6, G:7, "G#":8, Ab:8, A:9, "A#":10, Bb:10, B:11 };
@@ -499,15 +514,18 @@ var SillonCore = (function(){
   function camelotName(k){ var c = camelot(k); return c.n + (c.minor ? "A" : "B"); }
 
   // refs: features of 1-3 references; cands: candidate features; W: {timbre, rythme, energie, tonalite}
-  function rankMulti(refs, cands, W){
+  function rankMulti(refs, cands, W, styleD){
     var all = refs.concat(cands);
+    var hasGroove = all.every(function(f){ return f.groove && f.groove.length === 16; }), gsd = [];
+    if (hasGroove) for (var gd = 0; gd < 16; gd++){ var gm = 0, gi; for (gi = 0; gi < all.length; gi++) gm += all[gi].groove[gd]; gm /= all.length; var gv = 0; for (gi = 0; gi < all.length; gi++) gv += Math.pow(all[gi].groove[gd] - gm, 2); gsd.push(Math.sqrt(gv / all.length) || 1); }
     var scal = function(f){ return f.mfccMean.concat(f.mfccStd.map(function(v){ return v * 0.7; }), [f.centroid, f.rolloff, f.flatness, f.bass]); };
     var vec = all.map(scal), D = vec[0].length, sd = [];
     for (var d = 0; d < D; d++){ var mu = 0, i; for (i = 0; i < vec.length; i++) mu += vec[i][d]; mu /= vec.length; var vv = 0; for (i = 0; i < vec.length; i++) vv += Math.pow(vec[i][d] - mu, 2); sd.push(Math.sqrt(vv / vec.length) || 1); }
     function z(name){ var col = all.map(function(f){ return f[name] == null ? 0 : f[name]; }), m = 0, i; for (i = 0; i < col.length; i++) m += col[i]; m /= col.length; var s = 0; for (i = 0; i < col.length; i++) s += Math.pow(col[i] - m, 2); s = Math.sqrt(s / col.length) || 1; return col.map(function(v){ return (v - m) / s; }); }
     var zL = z("loud"), zD = z("dyn"), zO = z("onset"), zP = z("pulse"), zDa = z("dance");
     var hasDance = all.every(function(f){ return f.dance != null; });
-    var wsum = (W.timbre + W.rythme + W.energie + W.tonalite) || 1, R = refs.length;
+    var useStyle = !!(styleD && W.style), ws = useStyle ? W.style : 0;
+    var wsum = (W.timbre + W.rythme + W.energie + W.tonalite + ws) || 1, R = refs.length;
     function parts(ri, cj){
       var a = all[ri], b = all[cj], t = 0;
       for (var dd = 0; dd < D; dd++) t += Math.pow((vec[cj][dd] - vec[ri][dd]) / sd[dd], 2);
@@ -515,6 +533,7 @@ var SillonCore = (function(){
       var tempo = tempoDist(b.bpm, a.bpm) / 0.07;
       var ry2 = tempo * tempo * 2 + Math.pow(zP[cj] - zP[ri], 2) + Math.pow(zO[cj] - zO[ri], 2), nry = 4;
       if (hasDance){ ry2 += Math.pow(zDa[cj] - zDa[ri], 2) * 1.5; nry += 1.5; }
+      if (hasGroove){ var gg = 0; for (var q = 0; q < 16; q++) gg += Math.pow((b.groove[q] - a.groove[q]) / gsd[q], 2); ry2 += (gg / 16) * 4; nry += 4; }
       var en = Math.sqrt((Math.pow(zL[cj] - zL[ri], 2) + Math.pow(zD[cj] - zD[ri], 2) * 0.5 + Math.pow(zO[cj] - zO[ri], 2) * 0.5) / 2);
       var cos = 0, na = 0, nb2 = 0; for (var k = 0; k < 12; k++){ cos += b.chroma[k] * a.chroma[k]; na += b.chroma[k] * b.chroma[k]; nb2 += a.chroma[k] * a.chroma[k]; }
       var to = keyDist(b.key, a.key) / 2 + (1 - cos / (Math.sqrt(na * nb2) || 1)) * 4;
@@ -528,7 +547,8 @@ var SillonCore = (function(){
         if (dr < nearD){ nearD = dr; nearest = ri; }
         for (var g in sum) sum[g] += p[g] / R;
       }
-      var dist = (W.timbre * sum.timbre + W.rythme * sum.rythme + W.energie * sum.energie + W.tonalite * sum.tonalite) / wsum;
+      if (useStyle) sum.style = styleD[ci];
+      var dist = (W.timbre * sum.timbre + W.rythme * sum.rythme + W.energie * sum.energie + W.tonalite * sum.tonalite + (useStyle ? ws * sum.style : 0)) / wsum;
       return { d:dist, parts:sum, nearest:nearest };
     });
     var sorted = res.map(function(o){ return o.d; }).sort(function(a, b){ return a - b; });
@@ -768,7 +788,7 @@ self.onmessage = function(ev){
   new MutationObserver(() => { if (out.querySelector(".tracks .track") && matchMedia("(max-width:700px)").matches && out.getBoundingClientRect().top > innerHeight) $("nav-dot").hidden = false; }).observe(out, { childList:true });
 
   // ================= analysis engine =================
-  const FEAT_V = "sillon-feat-v3";
+  const FEAT_V = "sillon-feat-v4";
   let featStore = store.get(FEAT_V, {});
   function cacheGet(k){ return featStore[k] || null; }
   function cacheSet(k, f){
@@ -847,15 +867,15 @@ self.onmessage = function(ev){
   }
 
   // ================= learning from 👍 / 👎 =================
-  const WDEF = { timbre:3, rythme:2, energie:2, tonalite:1 };
+  const WDEF = { timbre:3, rythme:3, energie:2, tonalite:1, style:3 };
   const getWeights = () => ({ ...WDEF, ...store.get("sillon-weights", {}) });
   const votes = () => store.get("sillon-votes", {});
-  const LBL = { timbre:"timbre", rythme:"rythme", energie:"énergie", tonalite:"tonalité" };
+  const LBL = { timbre:"timbre", rythme:"groove", energie:"énergie", tonalite:"tonalité", style:"style" };
   function learn(item, v){
     const vs = votes(), k = favKey(item);
     if (vs[k] === v){ delete vs[k]; store.set("sillon-votes", vs); render(); return; }
     vs[k] = v; store.set("sillon-votes", vs);
-    const p = item.parts, keys = Object.keys(WDEF), vals = keys.map(g => p[g]);
+    const p = item.parts, keys = Object.keys(WDEF).filter(g => p[g] != null), vals = keys.map(g => p[g]);
     const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
     const spread = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length) + 0.3;
     const W = getWeights(), changes = [];
@@ -910,10 +930,10 @@ self.onmessage = function(ev){
   async function poolFor(artistId, ref){
     const hasKey = !!store.get("sillon-lfkey", "");
     const jobs = [
-      dz(`artist/${artistId}/radio?limit=50`).then(d => (d.data || []).map(x => fromDeezer(x))).catch(() => []),
+      dz(`artist/${artistId}/radio?limit=50`).then(d => (d.data || []).map(x => ({ ...fromDeezer(x), src:"radio" }))).catch(() => []),
       dz(`artist/${artistId}/related?limit=25`).then(async d => {
         const tops = await pool(d.data || [], 5, a => dz(`artist/${a.id}/top?limit=3`));
-        return tops.flatMap(t => (t?.data || []).slice(0, 2).map(x => fromDeezer(x)));
+        return tops.flatMap(t => (t?.data || []).slice(0, 2).map(x => ({ ...fromDeezer(x), src:"related" })));
       }).catch(() => []),
     ];
     if (hasKey && ref.title && ref.artist && ref.kind === "deezer"){
@@ -932,14 +952,62 @@ self.onmessage = function(ev){
   // ---- style sources (Deezer playlists) ----
   const STYLES = {
     kizomba:{ label:"Kizomba", search:["kizomba", "kizomba zouk", "kizomba lento"], fixed:[], must:/kizomba|kiz\b/i, avoid:/salsa|bachata|sbk|reggaeton|latino/i },
-    afro:{ label:"Afro", search:[], fixed:[1257036831, 1440614715, 1440933255, 10567515462], chart:2 },
+    afrobeats:{ label:"Afrobeats", search:["afrobeats 2026"], fixed:[1440614715, 1257036831, 10567515462, 7437750224], must:/afrobeat|afro hits|naija|amapiano/i, avoid:/house|lounge|ibiza|fran/i },
+    afro:{ label:"Afro FR", search:["afro trap", "afro love"], fixed:[1440933255], chart:2, must:/afro/i, avoid:/house|lounge|ibiza|beats/i },
     zouk:{ label:"Zouk", search:["zouk 2026"], fixed:[14828102663, 9826050722, 11556358124, 15856109281], must:/zouk/i, avoid:/kizomba|salsa|bachata/i },
     kompa:{ label:"Kompa", search:["kompa", "konpa gouyad"], fixed:[10349775862, 13693016361, 14406708481], must:/k[oa]mpa|konpa|gouyad/i, avoid:/salsa|bachata|kizomba/i },
     rnb:{ label:"R&B", search:[], fixed:[1999466402, 5014647904, 1384018035, 741472455], chart:165 },
     rapfr:{ label:"Rap FR", search:[], fixed:[1071669561, 3272614282, 15856105481, 9563400362], chart:116 },
     rapus:{ label:"Rap US", search:["rap us 2026"], fixed:[6682665064, 1996494362, 1677006641, 7662551722], must:/rap us|us rap/i, avoid:/fran[cç]ais|\bfr\b/i },
+    reggaeton:{ label:"Reggaeton", search:["reggaeton", "reggaeton 2026", "perreo"], fixed:[], chart:197, must:/reggaet|perreo|dembow/i, avoid:/kizomba|bachata|salsa|zouk|kompa/i },
   };
   const styleCache = {};
+  // how close two styles are (0 = same, 1.5 = unrelated)
+  const FAMILY = { kizomba:"caraibe", zouk:"caraibe", kompa:"caraibe", afrobeats:"afro", afro:"afro", rapfr:"rap", rapus:"rap", rnb:"rnb", reggaeton:"latin" };
+  const NEAR = { "caraibe|afro":0.9, "rap|rnb":0.8, "afro|rap":1.0, "afro|rnb":1.0, "afro|latin":1.0, "caraibe|latin":1.1, "caraibe|rnb":1.1 };
+  function styleGap(a, b){
+    if (a === b) return 0;
+    const fa = FAMILY[a], fb = FAMILY[b];
+    if (fa === fb) return 0.45;
+    return NEAR[fa + "|" + fb] ?? NEAR[fb + "|" + fa] ?? 1.5;
+  }
+  // artist id -> styles they appear in, from every style's playlists
+  let styleIndexP = null;
+  function styleIndex(){
+    if (styleIndexP) return styleIndexP;
+    styleIndexP = (async () => {
+      const idx = new Map();
+      const lists = await Promise.all(Object.keys(STYLES).map(k => styleTracks(k).then(l => [k, l]).catch(() => [k, []])));
+      for (const [k, l] of lists) for (const t of l){ const a = t.artist?.id; if (!a) continue; if (!idx.has(a)) idx.set(a, {}); idx.get(a)[k] = (idx.get(a)[k] || 0) + 1; }
+      return idx;
+    })();
+    return styleIndexP;
+  }
+  // styles an artist mostly belongs to (keeps styles holding at least a third of their appearances)
+  function artistStyles(idx, artistId){
+    const m = idx.get(artistId); if (!m) return [];
+    const tot = Object.values(m).reduce((a, b) => a + b, 0);
+    return Object.entries(m).filter(([, n]) => n / tot >= 0.34).map(([k]) => k);
+  }
+  const GENRE_HINT = { 116:["rapfr","rapus"], 165:["rnb"], 197:["reggaeton"], 2:["afro","afrobeats"] };
+  async function detectRefStyles(refs, idx){
+    const found = new Set();
+    for (const r of refs){
+      let st = r.artistId ? artistStyles(idx, r.artistId) : [];
+      if (!st.length && r.kind === "deezer" && r.id){
+        try { const t = await dz("track/" + r.id); const al = t.album?.id ? await dz("album/" + t.album.id) : null; st = GENRE_HINT[al?.genre_id] || []; } catch {}
+      }
+      st.forEach(x => found.add(x));
+    }
+    return [...found];
+  }
+  function candStyles(c, idx){ const st = new Set(c.artistId ? artistStyles(idx, c.artistId) : []); if (c.styleSrc) st.add(c.styleSrc); return [...st]; }
+  function styleDistance(cst, rst, c){
+    if (!rst.length) return 0;
+    if (!cst.length) return c.src === "radio" || c.src === "related" ? 0.35 : 0.6;
+    let best = 9; for (const a of cst) for (const b of rst) best = Math.min(best, styleGap(a, b));
+    return best;
+  }
   function styleTracks(name){
     if (styleCache[name]) return styleCache[name];
     const S = STYLES[name];
@@ -965,13 +1033,18 @@ self.onmessage = function(ev){
     cb.addEventListener("change", () => store.set("sillon-style-" + k, cb.checked));
   });
 
-  async function buildPool(refs, depth, exclude){
+  async function buildPool(refs, depth, exclude, refStyles = []){
     const lists = [];
-    const styles = activeStyles();
+    let styles = activeStyles();
+    if (refStyles.length){
+      const close = styles.filter(k => refStyles.some(r => styleGap(k, r) <= 0.45));
+      styles = close.length ? close : refStyles.filter(k => STYLES[k]);
+    }
     if (styles.length){
-      const per = Math.max(4, Math.round(depth * 0.35 / styles.length));
+      const share = refStyles.length ? 0.5 : 0.35;
+      const per = Math.max(4, Math.round(depth * share / styles.length));
       const got = await Promise.all(styles.map(styleTracks));
-      got.forEach(l => { const a = [...l].sort(() => Math.random() - 0.5).slice(0, per); lists.push(a.map(x => ({ ...fromDeezer(x), style:true }))); });
+      got.forEach((l, i) => { const a = [...l].sort(() => Math.random() - 0.5).slice(0, per); lists.push(a.map(x => ({ ...fromDeezer(x), styleSrc:styles[i], src:"style" }))); });
     }
     for (const r of refs){
       const ids = r.kind === "deezer" ? [r.artistId] : (r.seedArtistIds || []);
@@ -1010,9 +1083,15 @@ self.onmessage = function(ev){
       const deezerRefs = refs.filter(r => r.kind === "deezer");
       if (deezerRefs.length) pushHist({ label:deezerRefs.map(r => `${r.artist} – ${r.title}`).join(" + "), mode:"tracks", refs:deezerRefs.map(r => r.id) });
 
-      // 2. candidates
+      // 2. style of the reference(s)
+      setStatus("Reconnaissance du style…", true);
+      const idx = await styleIndex();
+      if (my !== runId) return;
+      const refStyles = await detectRefStyles(refs, idx);
+      if (my !== runId) return;
+      // 3. candidates
       setStatus("Constitution de la liste de candidats…", true);
-      let cands = await buildPool(refs, depth, exclude);
+      let cands = await buildPool(refs, depth, exclude, refStyles);
       if (my !== runId) return;
       await pool(cands.filter(c => !c.id), 5, async c => {
         const d = await dz(`search?limit=5&q=${encodeURIComponent(`artist:"${c.artist}" track:"${c.title}"`)}`);
@@ -1034,9 +1113,13 @@ self.onmessage = function(ev){
       });
       if (my !== runId) return;
       cands = cands.filter(x => x.feat);
+      cands.forEach(c => { c.styles = candStyles(c, idx); c.styleD = styleDistance(c.styles, refStyles, c); });
+      const strict = $("samestyle").checked && refStyles.length;
+      const offStyle = strict ? cands.filter(c => c.styleD >= 1.5).length : 0;
+      if (strict) cands = cands.filter(c => c.styleD < 1.5);
       if (!cands.length){ showError("Aucun extrait des morceaux candidats n'a pu être analysé. Ton navigateur bloque peut-être le téléchargement des extraits : essaie avec Chrome ou Firefox, ou mets Sillon en ligne (voir le guide)."); return; }
       markDiscoveries(cands);
-      view = { mode:"tracks", refs, items:cands, failed };
+      view = { mode:"tracks", refs, items:cands, failed, refStyles, offStyle };
       applyRanking(); render();
       setStatus(`${cands.length} morceaux analysés${failed ? ` (${failed} sans extrait disponible)` : ""}.`, false);
     } catch (e){ if (my === runId) showError("La recherche a échoué (connexion ou service indisponible). Réessaie dans un instant."); }
@@ -1065,7 +1148,7 @@ self.onmessage = function(ev){
   }
   function applyRanking(){
     const v = view; if (!v || v.mode !== "tracks" || !v.items.length) return;
-    const res = SillonCore.rankMulti(v.refs.map(r => r.feat), v.items.map(i => i.feat), getWeights());
+    const res = SillonCore.rankMulti(v.refs.map(r => r.feat), v.items.map(i => i.feat), getWeights(), v.refStyles?.length ? v.items.map(i => i.styleD ?? 0) : null);
     v.items.forEach((it, i) => Object.assign(it, res[i]));
     v.items.sort((a, b) => a.d - b.d);
   }
@@ -1254,6 +1337,7 @@ self.onmessage = function(ev){
     const tempoTxt = refs.map(r => Math.round(r.feat.bpm)).join(" / ") + " BPM";
     const keyTxt = refs.map(r => `${SillonCore.keyName(r.feat.key)} (${SillonCore.camelotName(r.feat.key)})`).join(" / ");
     [["Tempo", tempoTxt], ["Tonalité", keyTxt]].forEach(([k,v]) => { const d = el("div"); d.append(el("span","label",k), el("b",null,v)); facts.append(d); });
+    if (view.refStyles?.length){ const d = el("div"); d.append(el("span","label","Style détecté"), el("b",null,view.refStyles.map(k => STYLES[k]?.label || k).join(" · "))); facts.append(d); }
     prof.append(facts);
     const avgP = name => refs.reduce((s, r) => s + pct(allF.map(f => f[name] ?? 0), r.feat[name] ?? 0), 0) / refs.length;
     const rows = [["Énergie","loud"],["Brillance","centroid"],["Basses","bass"],["Rythme marqué","pulse"]];
@@ -1270,7 +1354,7 @@ self.onmessage = function(ev){
     const nv = Object.keys(votes()).length; if (nv) wh.append(el("span","small",`Ajusté d'après tes ${nv} avis`));
     wbox.append(wh);
     const W = getWeights(), WL = ["ignoré","faible","moyen","fort","très fort"];
-    [["timbre","Timbre et texture"],["rythme","Rythme et tempo"],["energie","Énergie"],["tonalite","Tonalité et harmonie"]].forEach(([k,lbl]) => {
+    [["style","Style musical"],["timbre","Timbre et texture"],["rythme","Rythme et groove"],["energie","Énergie"],["tonalite","Tonalité et harmonie"]].forEach(([k,lbl]) => {
       const row = el("label","wrow"); row.htmlFor = "w-" + k;
       const inp = el("input"); inp.type = "range"; inp.min = 0; inp.max = 4; inp.step = "0.1"; inp.value = W[k]; inp.id = "w-" + k;
       const val = el("span","wval", WL[Math.round(W[k])]);
@@ -1283,14 +1367,14 @@ self.onmessage = function(ev){
     // list
     const sec = el("section","refs");
     const lh = el("div","list-head");
-    lh.append(el("h2",null,"Morceaux à la sonorité proche"), el("span","legend",`Classés par ressemblance sonore sur ${items.length} candidats`));
+    lh.append(el("h2",null,"Morceaux à la sonorité proche"), el("span","legend",`Classés par ressemblance sur ${items.length} candidats` + (view.offStyle ? ` · ${view.offStyle} d'un autre style écartés` : "")));
     sec.append(lh, filterButtons());
     const count = Number($("count").value), onePer = $("onePer").checked, seenA = new Set(), vs = votes();
     const shown = items.filter(i => filter === "all" || (filter === "disc" ? i.discovery : !i.discovery))
       .filter(i => { if (!onePer) return true; const a = norm(i.artist); if (seenA.has(a)) return false; seenA.add(a); return true; })
       .slice(0, count);
     const ol = el("ol","tracks");
-    const PL = { timbre:"même texture", rythme:"même rythme", energie:"même énergie", tonalite:"tonalité proche" };
+    const PL = { timbre:"même texture", rythme:"même groove", energie:"même énergie", tonalite:"tonalité proche" };
     shown.forEach(t => {
       const f = t.feat, myVote = vs[favKey(t)];
       const li = el("li","track" + (myVote > 0 ? " liked" : ""));
@@ -1308,7 +1392,8 @@ self.onmessage = function(ev){
       const m = el("div","meter"); const bi = el("i"); bi.style.width = t.sim + "%"; m.append(bi); body.append(m);
       const ch = el("div","chips");
       ch.append(el("span","chip",`${Math.round(f.bpm)} BPM`), el("span","chip",SillonCore.keyName(f.key)));
-      Object.entries(t.parts).filter(([, v]) => v < 0.6).sort((a, b) => a[1] - b[1]).slice(0, 2).forEach(([k]) => ch.append(el("span","chip chip-ok",PL[k])));
+      if (t.styles?.length) ch.append(el("span","chip" + (t.styleD === 0 ? " chip-ok" : ""), t.styles.map(k => STYLES[k]?.label || k).join(" · ")));
+      Object.entries(t.parts).filter(([k, v]) => k !== "style" && v < 0.6).sort((a, b) => a[1] - b[1]).slice(0, 2).forEach(([k]) => ch.append(el("span","chip chip-ok",PL[k])));
       const near = refs[t.nearest] || refs[0];
       if (refs.length > 1) ch.append(el("span","chip",`plus proche de « ${near.title} »`));
       SillonCore.describe(f, near.feat).forEach(d => ch.append(el("span","chip",d)));
