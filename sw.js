@@ -1,5 +1,5 @@
 // Sillon service worker: app shell offline, Essentia and fonts cached after first use.
-const SHELL = "sillon-shell-v6", RUNTIME = "sillon-runtime-v1";
+const SHELL = "sillon-shell-v7", RUNTIME = "sillon-runtime-v1";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {

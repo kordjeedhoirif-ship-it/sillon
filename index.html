@@ -644,13 +644,33 @@ self.onmessage = function(ev){
       const s = document.createElement("script");
       const done = () => { clearTimeout(t); delete window[cb]; s.remove(); };
       const t = setTimeout(() => { done(); reject(new Error("timeout")); }, 12000);
-      window[cb] = d => { done(); if (d && d.error) reject(new Error(d.error.message || "api")); else resolve(d); };
+      window[cb] = d => { done(); if (d && d.error){ const e = new Error(d.error.message || "api"); e.quota = d.error.code === 4 || /quota/i.test(d.error.message || ""); reject(e); } else resolve(d); };
       s.onerror = () => { done(); reject(new Error("network")); };
       s.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cb;
       document.head.append(s);
     });
   }
-  const dz = path => jsonp("https://api.deezer.com/" + path + (path.includes("?") ? "&" : "?") + "output=jsonp", "dz_");
+  // Deezer allows about 50 calls per 5 s: space calls out and retry on quota or network hiccups
+  let dzSlots = Promise.resolve(), dzStamps = [];
+  function dzThrottle(){
+    const p = dzSlots.then(async () => {
+      const now = Date.now(); dzStamps = dzStamps.filter(t => now - t < 5000);
+      if (dzStamps.length >= 40) await new Promise(r => setTimeout(r, 5000 - (now - dzStamps[0]) + 50));
+      dzStamps.push(Date.now());
+    });
+    dzSlots = p.catch(() => {}); return p;
+  }
+  async function dz(path, tries = 3){
+    for (let i = 0; ; i++){
+      await dzThrottle();
+      try { return await jsonp("https://api.deezer.com/" + path + (path.includes("?") ? "&" : "?") + "output=jsonp", "dz_"); }
+      catch (e){
+        const retry = e.quota || e.message === "timeout" || e.message === "network";
+        if (!retry || i >= tries - 1) throw e;
+        await new Promise(r => setTimeout(r, e.quota ? 2500 * (i + 1) : 800 * (i + 1)));
+      }
+    }
+  }
   const itunes = term => jsonp(`https://itunes.apple.com/search?entity=song&limit=5&country=FR&term=${encodeURIComponent(term)}`, "it_");
   async function lf(params){
     const key = store.get("sillon-lfkey", "");
@@ -845,8 +865,12 @@ self.onmessage = function(ev){
     });
   }
   async function featuresFromUrl(url){
-    const r = await fetch(url, { mode:"cors" });
-    if (!r.ok) throw new Error("http " + r.status);
+    let r;
+    for (let i = 0; i < 2; i++){
+      try { r = await fetch(url, { mode:"cors" }); if (r.ok) break; } catch (e){ if (i) throw e; }
+      await new Promise(res => setTimeout(res, 600));
+    }
+    if (!r || !r.ok) throw new Error("http " + (r?.status || 0));
     const { samples, sr } = await decode(await r.arrayBuffer(), false);
     return analyzeSamples(samples, sr);
   }
@@ -926,7 +950,7 @@ self.onmessage = function(ev){
   }
 
   // ================= candidate pool =================
-  const fromDeezer = (x, match) => ({ id:x.id, title:x.title, artist:x.artist?.name, artistId:x.artist?.id, album:x.album?.title, cover:x.album?.cover_medium, preview:x.preview, link:x.link, rank:x.rank || 0, match });
+  const fromDeezer = (x, match) => ({ id:x.id, title:x.title, artist:x.artist?.name, artistId:x.artist?.id, album:x.album?.title, albumId:x.album?.id, cover:x.album?.cover_medium, preview:x.preview, link:x.link, rank:x.rank || 0, match });
   async function poolFor(artistId, ref){
     const hasKey = !!store.get("sillon-lfkey", "");
     const jobs = [
@@ -967,6 +991,7 @@ self.onmessage = function(ev){
   const NEAR = { "caraibe|afro":0.9, "rap|rnb":0.8, "afro|rap":1.0, "afro|rnb":1.0, "afro|latin":1.0, "caraibe|latin":1.1, "caraibe|rnb":1.1 };
   function styleGap(a, b){
     if (a === b) return 0;
+    if (a.startsWith("genre") || b.startsWith("genre")) return 1.5;
     const fa = FAMILY[a], fb = FAMILY[b];
     if (fa === fb) return 0.45;
     return NEAR[fa + "|" + fb] ?? NEAR[fb + "|" + fa] ?? 1.5;
@@ -991,13 +1016,34 @@ self.onmessage = function(ev){
   }
   // Deezer album genres -> our styles (a cross-check against the playlists)
   const GENRE_HINT = { 116:["rapfr","rapus"], 165:["rnb"], 197:["reggaeton"], 2:["afro","afrobeats"] };
+  // genres outside our styles: known, but unrelated to all of them
+  const OTHER_GENRES = { 132:"Pop", 113:"Dance", 106:"Électro", 152:"Rock", 85:"Alternative", 466:"Folk", 129:"Jazz", 52:"Chanson française", 84:"Country", 98:"Classique", 173:"Musique de film", 464:"Metal", 169:"Soul & Funk", 153:"Blues", 95:"Jeunesse", 144:"Reggae", 12:"Musique arabe", 16:"Musique asiatique", 75:"Musique brésilienne", 81:"Musique indienne" };
+  const AGKEY = "sillon-albumgenre";
+  let albumGenres = store.get(AGKEY, {});
+  async function albumGenre(albumId){
+    if (!albumId) return null;
+    if (albumGenres[albumId] != null) return albumGenres[albumId];
+    try {
+      const al = await dz("album/" + albumId);
+      albumGenres[albumId] = al?.genre_id ?? -1;
+      const keys = Object.keys(albumGenres); if (keys.length > 4000) keys.slice(0, 1000).forEach(k => delete albumGenres[k]);
+      store.set(AGKEY, albumGenres);
+      return albumGenres[albumId];
+    } catch { return null; }
+  }
+  function genreStyles(g){
+    if (g == null || g < 0) return [];
+    if (GENRE_HINT[g]) return GENRE_HINT[g];
+    if (OTHER_GENRES[g]) return ["genre" + g];
+    return [];
+  }
   async function detectRefStyles(refs, idx){
     const found = new Set();
     for (const r of refs){
       let st = r.artistId ? artistStyles(idx, r.artistId) : [];
       let hint = [];
       if (r.kind === "deezer" && r.id){
-        try { const t = await dz("track/" + r.id); const al = t.album?.id ? await dz("album/" + t.album.id) : null; hint = GENRE_HINT[al?.genre_id] || []; } catch {}
+        try { const t = await dz("track/" + r.id); hint = GENRE_HINT[await albumGenre(t.album?.id)] || []; } catch {}
       }
       if (hint.length){
         // keep playlist styles that agree with the album genre; if none agree, trust the genre
@@ -1008,7 +1054,15 @@ self.onmessage = function(ev){
     }
     return [...found];
   }
-  function candStyles(c, idx){ const st = new Set(c.artistId ? artistStyles(idx, c.artistId) : []); if (c.styleSrc) st.add(c.styleSrc); return [...st]; }
+  function candStyles(c, idx){
+    const st = new Set(c.artistId ? artistStyles(idx, c.artistId) : []); if (c.styleSrc) st.add(c.styleSrc);
+    if (c.genre != null){
+      const g = genreStyles(c.genre);
+      if (!st.size) g.forEach(x => st.add(x));
+    }
+    return [...st];
+  }
+  const STYLE_LABEL = k => STYLES[k]?.label || OTHER_GENRES[+String(k).replace("genre","")] || k;
   function styleDistance(cst, rst, c){
     if (!rst.length) return 0;
     if (!cst.length) return c.src === "radio" || c.src === "related" ? 0.35 : 0.6;
@@ -1120,10 +1174,26 @@ self.onmessage = function(ev){
       });
       if (my !== runId) return;
       cands = cands.filter(x => x.feat);
+      if (refStyles.length){
+        setStatus("Vérification du style des morceaux…", true);
+        await pool(cands, 4, async c => { c.genre = await albumGenre(c.albumId); });
+        if (my !== runId) return;
+      }
       cands.forEach(c => { c.styles = candStyles(c, idx); c.styleD = styleDistance(c.styles, refStyles, c); });
       const strict = $("samestyle").checked && refStyles.length;
-      const offStyle = strict ? cands.filter(c => c.styleD >= 1.5).length : 0;
-      if (strict) cands = cands.filter(c => c.styleD < 1.5);
+      let offStyle = 0;
+      if (strict){
+        const sure = cands.filter(c => c.styles.length && c.styleD <= 0.45);
+        const near = cands.filter(c => c.styles.length && c.styleD > 0.45 && c.styleD < 1.5);
+        const unknown = cands.filter(c => !c.styles.length);
+        const want = Number($("count").value);
+        // only same-family tracks; neighbours, then unverified ones, only if needed to fill the list
+        let kept = [...sure];
+        if (kept.length < want) kept = kept.concat(near);
+        if (kept.length < want) kept = kept.concat(unknown);
+        offStyle = cands.length - kept.length;
+        cands = kept;
+      }
       if (!cands.length){ showError("Aucun extrait des morceaux candidats n'a pu être analysé. Ton navigateur bloque peut-être le téléchargement des extraits : essaie avec Chrome ou Firefox, ou mets Sillon en ligne (voir le guide)."); return; }
       markDiscoveries(cands);
       view = { mode:"tracks", refs, items:cands, failed, refStyles, offStyle };
@@ -1374,7 +1444,7 @@ self.onmessage = function(ev){
     // list
     const sec = el("section","refs");
     const lh = el("div","list-head");
-    lh.append(el("h2",null,"Morceaux à la sonorité proche"), el("span","legend",`Classés par ressemblance sur ${items.length} candidats` + (view.offStyle ? ` · ${view.offStyle} d'un autre style écartés` : "")));
+    lh.append(el("h2",null,"Morceaux à la sonorité proche"), el("span","legend",`Classés par ressemblance sur ${items.length} candidats` + (view.offStyle ? ` · ${view.offStyle} hors style écartés` : "")));
     sec.append(lh, filterButtons());
     const count = Number($("count").value), onePer = $("onePer").checked, seenA = new Set(), vs = votes();
     const shown = items.filter(i => filter === "all" || (filter === "disc" ? i.discovery : !i.discovery))
@@ -1399,7 +1469,8 @@ self.onmessage = function(ev){
       const m = el("div","meter"); const bi = el("i"); bi.style.width = t.sim + "%"; m.append(bi); body.append(m);
       const ch = el("div","chips");
       ch.append(el("span","chip",`${Math.round(f.bpm)} BPM`), el("span","chip",SillonCore.keyName(f.key)));
-      if (t.styles?.length) ch.append(el("span","chip" + (t.styleD === 0 ? " chip-ok" : ""), t.styles.map(k => STYLES[k]?.label || k).join(" · ")));
+      if (t.styles?.length) ch.append(el("span","chip" + (t.styleD === 0 ? " chip-ok" : ""), t.styles.map(STYLE_LABEL).join(" · ")));
+      else if (view.refStyles?.length) ch.append(el("span","chip","style non vérifié"));
       Object.entries(t.parts).filter(([k, v]) => k !== "style" && v < 0.6).sort((a, b) => a[1] - b[1]).slice(0, 2).forEach(([k]) => ch.append(el("span","chip chip-ok",PL[k])));
       const near = refs[t.nearest] || refs[0];
       if (refs.length > 1) ch.append(el("span","chip",`plus proche de « ${near.title} »`));
