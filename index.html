@@ -1048,7 +1048,11 @@ self.onmessage = function(ev){
       if (hint.length){
         // keep playlist styles that agree with the album genre; if none agree, trust the genre
         const agree = st.filter(a => hint.some(h => styleGap(a, h) <= 0.45));
-        st = agree.length ? agree : hint;
+        // Deezer often files kompa, zouk or afro albums under Rap or Pop, so the playlists win,
+        // except for Latin albums, whose genre is reliable
+        if (!st.length) st = hint;
+        else if (agree.length) st = agree;
+        else if (hint.includes("reggaeton")) st = hint;
       }
       st.forEach(x => found.add(x));
     }
