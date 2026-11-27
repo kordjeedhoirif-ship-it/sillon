@@ -952,14 +952,14 @@ self.onmessage = function(ev){
   // ---- style sources (Deezer playlists) ----
   const STYLES = {
     kizomba:{ label:"Kizomba", search:["kizomba", "kizomba zouk", "kizomba lento"], fixed:[], must:/kizomba|kiz\b/i, avoid:/salsa|bachata|sbk|reggaeton|latino/i },
-    afrobeats:{ label:"Afrobeats", search:["afrobeats 2026"], fixed:[1440614715, 1257036831, 10567515462, 7437750224], must:/afrobeat|afro hits|naija|amapiano/i, avoid:/house|lounge|ibiza|fran/i },
-    afro:{ label:"Afro FR", search:["afro trap", "afro love"], fixed:[1440933255], chart:2, must:/afro/i, avoid:/house|lounge|ibiza|beats/i },
+    afrobeats:{ label:"Afrobeats", search:[], fixed:[1440614715, 1257036831, 10567515462, 7437750224, 11093412482] },
+    afro:{ label:"Afro FR", search:[], fixed:[1440933255, 14832350703] },
     zouk:{ label:"Zouk", search:["zouk 2026"], fixed:[14828102663, 9826050722, 11556358124, 15856109281], must:/zouk/i, avoid:/kizomba|salsa|bachata/i },
     kompa:{ label:"Kompa", search:["kompa", "konpa gouyad"], fixed:[10349775862, 13693016361, 14406708481], must:/k[oa]mpa|konpa|gouyad/i, avoid:/salsa|bachata|kizomba/i },
     rnb:{ label:"R&B", search:[], fixed:[1999466402, 5014647904, 1384018035, 741472455], chart:165 },
     rapfr:{ label:"Rap FR", search:[], fixed:[1071669561, 3272614282, 15856105481, 9563400362], chart:116 },
     rapus:{ label:"Rap US", search:["rap us 2026"], fixed:[6682665064, 1996494362, 1677006641, 7662551722], must:/rap us|us rap/i, avoid:/fran[cç]ais|\bfr\b/i },
-    reggaeton:{ label:"Reggaeton", search:["reggaeton", "reggaeton 2026", "perreo"], fixed:[], chart:197, must:/reggaet|perreo|dembow/i, avoid:/kizomba|bachata|salsa|zouk|kompa/i },
+    reggaeton:{ label:"Reggaeton", search:[], fixed:[1273315391, 11120289724, 13668661441, 789123393, 178699142] },
   };
   const styleCache = {};
   // how close two styles are (0 = same, 1.5 = unrelated)
@@ -978,7 +978,7 @@ self.onmessage = function(ev){
     styleIndexP = (async () => {
       const idx = new Map();
       const lists = await Promise.all(Object.keys(STYLES).map(k => styleTracks(k).then(l => [k, l]).catch(() => [k, []])));
-      for (const [k, l] of lists) for (const t of l){ const a = t.artist?.id; if (!a) continue; if (!idx.has(a)) idx.set(a, {}); idx.get(a)[k] = (idx.get(a)[k] || 0) + 1; }
+      for (const [k, l] of lists) for (const t of l){ const a = t.artist?.id; if (!a || t.fromChart) continue; if (!idx.has(a)) idx.set(a, {}); idx.get(a)[k] = (idx.get(a)[k] || 0) + 1; }
       return idx;
     })();
     return styleIndexP;
@@ -989,13 +989,20 @@ self.onmessage = function(ev){
     const tot = Object.values(m).reduce((a, b) => a + b, 0);
     return Object.entries(m).filter(([, n]) => n / tot >= 0.34).map(([k]) => k);
   }
+  // Deezer album genres -> our styles (a cross-check against the playlists)
   const GENRE_HINT = { 116:["rapfr","rapus"], 165:["rnb"], 197:["reggaeton"], 2:["afro","afrobeats"] };
   async function detectRefStyles(refs, idx){
     const found = new Set();
     for (const r of refs){
       let st = r.artistId ? artistStyles(idx, r.artistId) : [];
-      if (!st.length && r.kind === "deezer" && r.id){
-        try { const t = await dz("track/" + r.id); const al = t.album?.id ? await dz("album/" + t.album.id) : null; st = GENRE_HINT[al?.genre_id] || []; } catch {}
+      let hint = [];
+      if (r.kind === "deezer" && r.id){
+        try { const t = await dz("track/" + r.id); const al = t.album?.id ? await dz("album/" + t.album.id) : null; hint = GENRE_HINT[al?.genre_id] || []; } catch {}
+      }
+      if (hint.length){
+        // keep playlist styles that agree with the album genre; if none agree, trust the genre
+        const agree = st.filter(a => hint.some(h => styleGap(a, h) <= 0.45));
+        st = agree.length ? agree : hint;
       }
       st.forEach(x => found.add(x));
     }
@@ -1017,7 +1024,7 @@ self.onmessage = function(ev){
         try { const d = await dz("search/playlist?limit=12&q=" + encodeURIComponent(q)); (d.data || []).filter(p => (!S.must || S.must.test(p.title)) && !(S.avoid && S.avoid.test(p.title))).slice(0, 2).forEach(p => ids.add(p.id)); } catch {}
       }
       const jobs = [...ids].slice(0, 6).map(id => dz(`playlist/${id}/tracks?limit=60`).then(d => d.data || []).catch(() => []));
-      if (S.chart != null) jobs.push(dz(`chart/${S.chart}/tracks?limit=50`).then(d => d.data || []).catch(() => []));
+      if (S.chart != null) jobs.push(dz(`chart/${S.chart}/tracks?limit=50`).then(d => (d.data || []).map(t => ({ ...t, fromChart:true }))).catch(() => []));
       const lists = await Promise.all(jobs), seen = new Set(), outT = [];
       const maxL = Math.max(0, ...lists.map(l => l.length));
       for (let i = 0; i < maxL; i++) for (const l of lists){ const t = l[i]; if (t && t.id && !seen.has(t.id) && t.readable !== false){ seen.add(t.id); outT.push(t); } }
